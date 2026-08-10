@@ -59,7 +59,6 @@
     const collectionId = card.dataset.collectionId;
     const toggle = card.querySelector('[data-collection-toggle]');
     const body = card.querySelector('[data-collection-body]');
-    const stateLabel = toggle?.querySelector('[data-collection-toggle-state]');
     if (!collectionId || !toggle || !body) return;
 
     const storageKey = `gim-collection-expanded-${collectionId}`;
@@ -69,7 +68,6 @@
       body.hidden = !expanded;
       toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       const action = expanded ? 'Collapse' : 'Expand';
-      if (stateLabel) stateLabel.textContent = expanded ? 'Expanded' : 'Collapsed';
       toggle.setAttribute('aria-label', `${action} ${toggle.dataset.collectionName || 'collection'}`);
       toggle.title = `${action} collection`;
       card.classList.toggle('collection-collapsed', !expanded);
@@ -79,15 +77,26 @@
       expanded = !expanded;
       render(true);
     });
+    card.addEventListener('collection:set-expanded', event => {
+      expanded = event.detail.expanded;
+      render(true);
+    });
     render(forceExpanded);
   });
+
+  const setAllCollectionsExpanded = expanded => {
+    document.querySelectorAll('[data-collection-collapsible]').forEach(card => {
+      card.dispatchEvent(new CustomEvent('collection:set-expanded', { detail: { expanded } }));
+    });
+  };
+  document.querySelector('[data-collections-expand-all]')?.addEventListener('click', () => setAllCollectionsExpanded(true));
+  document.querySelector('[data-collections-collapse-all]')?.addEventListener('click', () => setAllCollectionsExpanded(false));
 
   document.querySelectorAll('[data-collection-section]').forEach(section => {
     const collectionId = section.dataset.collectionId;
     const sectionKey = section.dataset.sectionKey;
     const toggle = section.querySelector('[data-section-toggle]');
     const body = section.querySelector('[data-section-body]');
-    const stateLabel = toggle?.querySelector('[data-section-state]');
     if (!collectionId || !sectionKey || !toggle || !body) return;
 
     const storageKey = `gim-collection-${collectionId}-${sectionKey}-expanded`;
@@ -101,7 +110,6 @@
       toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       const sectionName = sectionKey === 'share-links' ? 'share links' : 'folders';
       const action = expanded ? 'Collapse' : 'Expand';
-      if (stateLabel) stateLabel.textContent = expanded ? 'Expanded' : 'Collapsed';
       toggle.setAttribute('aria-label', `${action} ${sectionName}`);
       toggle.title = `${action} ${sectionName}`;
       section.classList.toggle('collection-section-collapsed', !expanded);

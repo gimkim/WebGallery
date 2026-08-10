@@ -34,6 +34,10 @@
 }
 else
 {
+    <div class="collection-list-controls" aria-label="Collection display controls">
+        <button class="button compact" type="button" data-collections-expand-all>Expand all</button>
+        <button class="button compact" type="button" data-collections-collapse-all>Collapse all</button>
+    </div>
     <section class="collection-list">
     @foreach (var collection in Model.Collections)
     {
@@ -46,9 +50,11 @@ else
                 <button class="collection-card-heading-toggle" type="button" data-collection-toggle data-collection-name="@collection.Name" aria-controls="@collectionBodyId" aria-expanded="@(forceExpanded ? "true" : "false")">
                     <span class="collection-disclosure-icon" aria-hidden="true"></span>
                     <span class="collection-card-heading-copy">
-                        <span class="eyebrow">COLLECTION</span>
                         <span class="collection-card-title" role="heading" aria-level="2">@collection.Name</span>
-                        <span class="collection-card-meta"><span>@collection.Folders.Count folder@(collection.Folders.Count == 1 ? "" : "s")</span><span aria-hidden="true">&bull;</span><span class="collection-disclosure-state" data-collection-toggle-state>@(forceExpanded ? "Expanded" : "Collapsed")</span></span>
+                        <span class="collection-card-badges">
+                            <span class="collection-count-badge">@collection.Folders.Count folder@(collection.Folders.Count == 1 ? "" : "s")</span>
+                            <span class="collection-count-badge">@collection.ShareLinks.Count link@(collection.ShareLinks.Count == 1 ? "" : "s")</span>
+                        </span>
                     </span>
                 </button>
                 <div class="collection-card-actions">
@@ -63,12 +69,15 @@ else
                     <span class="collection-disclosure-icon" aria-hidden="true"></span>
                     <span class="collection-section-title">Folders</span>
                     <span class="collection-section-count">@collection.Folders.Count</span>
-                    <span class="collection-section-state" data-section-state>Expanded</span>
                 </button>
                 <div id="@foldersBodyId" class="collection-section-body" data-section-body>
                 @if (collection.Folders.Count == 0)
                 {
-                    <p class="muted">This collection is empty. Click Add folders above to open its folder picker.</p>
+                    <div class="collection-section-empty">
+                        <svg class="collection-empty-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h6l2 2h10v10H3z"/><path d="M3 6.5v-2h7l2 2h9v2"/></svg>
+                        <div><h3>No folders yet</h3><p>Choose folders from your gallery to include in this collection.</p></div>
+                        <a class="button primary compact" asp-action="SelectFolders" asp-route-id="@collection.Id">Add folders</a>
+                    </div>
                 }
                 else
                 {
@@ -121,31 +130,55 @@ else
                     <span class="collection-disclosure-icon" aria-hidden="true"></span>
                     <span class="collection-section-title">Share links</span>
                     <span class="collection-section-count">@collection.ShareLinks.Count</span>
-                    <span class="collection-section-state" data-section-state>Expanded</span>
                 </button>
                 <div id="@shareLinksBodyId" class="collection-section-body collection-share-content" data-section-body>
-                @foreach (var share in collection.ShareLinks)
+                @if (collection.ShareLinks.Count == 0)
                 {
-                    var link = share.Link;
-                    var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
-                    <div class="share-entry @(link.Id == createdLinkId ? "share-row-created" : "")">
-                        <div class="share-row">
-                            <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
-                            <a class="button compact" asp-action="ShareActivity" asp-route-id="@link.Id">Activity</a>
-                            <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><button class="danger-text" type="submit">Revoke</button></form>
-                        </div>
-                        <div class="share-metrics" aria-label="Share activity summary">
-                            <span><strong>@share.AccessCount</strong> accesses</span><span><strong>@share.ViewCount</strong> views</span><span><strong>@share.DownloadCount</strong> downloads</span><span><strong>@share.UniqueVisitorCount</strong> visitors</span>
-                            <span class="share-last-activity">@(share.LastActivityUtc is null ? "No activity yet" : $"Last {share.LastActivityUtc.Value.ToLocalTime():dd/MM/yyyy HH:mm}")</span>
-                        </div>
+                    <div class="collection-section-empty">
+                        <svg class="collection-empty-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 14.5l5-5"/><path d="M7.2 17.8l-1 1a3 3 0 01-4.2-4.2l4-4a3 3 0 014.2 0"/><path d="M16.8 6.2l1-1A3 3 0 0122 9.4l-4 4a3 3 0 01-4.2 0"/></svg>
+                        <div><h3>No share links yet</h3><p>Create a revocable unlisted link for the folders in this collection.</p></div>
+                        <form asp-action="CreateShare" method="post" class="collection-share-create" data-create-share>
+                            <input type="hidden" name="collectionId" value="@collection.Id" />
+                            <input type="hidden" name="itemsPerRow" value="@Model.DefaultItemsPerRow" />
+                            <input type="hidden" name="viewMode" value="grid" />
+                            <button class="primary compact" type="submit" disabled="@(collection.Folders.Count == 0)">Create share link</button>
+                        </form>
                     </div>
                 }
-                <form asp-action="CreateShare" method="post" class="collection-share-create" data-create-share>
-                    <input type="hidden" name="collectionId" value="@collection.Id" />
-                    <input type="hidden" name="itemsPerRow" value="@Model.DefaultItemsPerRow" />
-                    <input type="hidden" name="viewMode" value="grid" />
-                    <button class="primary" type="submit" disabled="@(collection.Folders.Count == 0)">Create share link</button>
-                </form>
+                else
+                {
+                    @foreach (var share in collection.ShareLinks)
+                    {
+                        var link = share.Link;
+                        var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
+                        var viewLabel = string.Equals(link.ViewMode, "list", StringComparison.OrdinalIgnoreCase) ? "List" : "Grid";
+                        var sortLabel = link.Sort.ToLowerInvariant() switch { "size" => "Size", "date" => "Date", _ => "Name" };
+                        var directionLabel = string.Equals(link.Direction, "desc", StringComparison.OrdinalIgnoreCase) ? "descending" : "ascending";
+                        <div class="share-entry @(link.Id == createdLinkId ? "share-row-created" : "")">
+                            <div class="share-row">
+                                <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
+                                <a class="button compact" asp-action="ShareActivity" asp-route-id="@link.Id">Activity</a>
+                                <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><button class="danger-text" type="submit">Revoke</button></form>
+                            </div>
+                            <div class="share-link-details" aria-label="Saved share link settings">
+                                <span>Created @link.CreatedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                <span class="share-setting-badge">@viewLabel</span>
+                                <span class="share-setting-badge">Sort: @sortLabel @directionLabel</span>
+                                <span class="share-setting-badge">@link.ItemsPerRow per row</span>
+                            </div>
+                            <div class="share-metrics" aria-label="Share activity summary">
+                                <span><strong>@share.AccessCount</strong> accesses</span><span><strong>@share.ViewCount</strong> views</span><span><strong>@share.DownloadCount</strong> downloads</span><span><strong>@share.UniqueVisitorCount</strong> visitors</span>
+                                <span class="share-last-activity">@(share.LastActivityUtc is null ? "No activity yet" : $"Last {share.LastActivityUtc.Value.ToLocalTime():dd/MM/yyyy HH:mm}")</span>
+                            </div>
+                        </div>
+                    }
+                    <form asp-action="CreateShare" method="post" class="collection-share-create" data-create-share>
+                        <input type="hidden" name="collectionId" value="@collection.Id" />
+                        <input type="hidden" name="itemsPerRow" value="@Model.DefaultItemsPerRow" />
+                        <input type="hidden" name="viewMode" value="grid" />
+                        <button class="primary" type="submit">Create another share link</button>
+                    </form>
+                }
                 </div>
             </section>
             </div>
