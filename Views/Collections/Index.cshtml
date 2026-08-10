@@ -17,6 +17,10 @@
     <a class="button" asp-controller="Gallery" asp-action="Index">Back to Gallery</a>
 </section>
 
+<section class="panel collection-density-toolbar">
+    <label class="columns-control">Folders per row <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
+</section>
+
 <section class="panel collection-create-panel">
     <form asp-action="Create" method="post">
         <label><span>New collection name</span><input name="name" maxlength="80" required placeholder="Example: Event highlights" /></label>
@@ -102,7 +106,7 @@ else
                         <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><button class="danger-text" type="submit">Revoke</button></form>
                     </div>
                 }
-                <form asp-action="CreateShare" method="post" class="collection-share-create">
+                <form asp-action="CreateShare" method="post" class="collection-share-create" data-create-share>
                     <input type="hidden" name="collectionId" value="@collection.Id" />
                     <input type="hidden" name="itemsPerRow" value="@Model.DefaultItemsPerRow" />
                     <input type="hidden" name="viewMode" value="grid" />

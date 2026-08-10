@@ -40,17 +40,19 @@
     if (savedColumns >= 2 && savedColumns <= 10) columns.value = savedColumns;
     const updateColumns = () => {
       gallery?.style.setProperty('--columns', columns.value);
-      columnsValue.textContent = columns.value;
+      collectionFolderGrids.forEach(grid => grid.style.setProperty('--columns', columns.value));
+      if (columnsValue) columnsValue.textContent = columns.value;
       localStorage.setItem('gim-gallery-columns', columns.value);
     };
     columns.addEventListener('input', updateColumns);
     updateColumns();
   }
 
-  document.querySelector('form[data-create-share]')?.addEventListener('submit', event => {
-    const form = event.currentTarget;
-    form.elements.namedItem('itemsPerRow').value = columns?.value || '8';
-    form.elements.namedItem('viewMode').value = document.querySelector('[data-view].active')?.dataset.view === 'list' ? 'list' : 'grid';
+  document.querySelectorAll('form[data-create-share]').forEach(form => {
+    form.addEventListener('submit', () => {
+      form.elements.namedItem('itemsPerRow').value = columns?.value || localStorage.getItem('gim-gallery-columns') || '8';
+      form.elements.namedItem('viewMode').value = document.querySelector('[data-view].active')?.dataset.view === 'list' ? 'list' : 'grid';
+    });
   });
 
   const thumbnailStates = new WeakMap();

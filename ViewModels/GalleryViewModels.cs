@@ -67,6 +67,8 @@ public sealed class CollectionFolderPickerViewModel
     public required string OwnerUserName { get; init; }
     public required string Path { get; init; }
     public string? ParentPath { get; init; }
+    public string Sort { get; init; } = "name";
+    public string Direction { get; init; } = "asc";
     public int ExistingFolderCount { get; init; }
     public int DefaultItemsPerRow { get; init; } = 8;
     public required IReadOnlyList<CollectionFolderPickerItemViewModel> Folders { get; init; }

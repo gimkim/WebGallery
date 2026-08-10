@@ -1,7 +1,18 @@
 @model CollectionFolderPickerViewModel
 @{
     ViewData["Title"] = $"Add folders to {Model.CollectionName}";
-    string PickerUrl(string path) => Url.Action("SelectFolders", "Collections", new { id = Model.CollectionId, path })!;
+    string PickerUrl(string path, string? sort = null, string? dir = null) => Url.Action("SelectFolders", "Collections", new
+    {
+        id = Model.CollectionId,
+        path,
+        sort = sort ?? Model.Sort,
+        dir = dir ?? Model.Direction
+    })!;
+    string SortUrl(string column)
+    {
+        var next = Model.Sort == column && Model.Direction == "asc" ? "desc" : "asc";
+        return PickerUrl(Model.Path, column, next);
+    }
     string ThumbnailUrl(string path, string cacheStamp) => Url.Action("Thumbnail", "Gallery", new
     {
         mode = "private",
@@ -34,10 +45,13 @@
 <form asp-action="AddFolders" method="post">
     <input type="hidden" name="collectionId" value="@Model.CollectionId" />
     <input type="hidden" name="returnPath" value="@Model.Path" />
+    <input type="hidden" name="sort" value="@Model.Sort" />
+    <input type="hidden" name="dir" value="@Model.Direction" />
     <section class="gallery-toolbar panel collection-picker-toolbar">
-        <div class="collection-picker-instructions">
-            <strong>Select folders for @Model.CollectionName</strong>
-            <small>Included folders are marked and cannot be selected twice.</small>
+        <div class="sort-group" aria-label="Sort order">
+            <span>Sort by</span>
+            <a class="@(Model.Sort == "name" ? "active" : "")" href="@SortUrl("name")">Name @(Model.Sort == "name" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+            <a class="@(Model.Sort == "date" ? "active" : "")" href="@SortUrl("date")">Date @(Model.Sort == "date" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
         </div>
         <div class="view-controls">
             <button id="add-folders-to-collection" class="primary" type="submit" disabled>Add selected folders <span id="selected-folder-count">0</span></button>

@@ -1172,6 +1172,11 @@ img[data-thumbnail-src].thumbnail-loaded {
   width: 100%;
   margin-top: 4px;
 }
+.collection-density-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
 .collection-folder-card-link {
   position: absolute;
   z-index: 2;

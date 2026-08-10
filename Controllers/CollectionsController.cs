@@ -55,7 +55,7 @@ public sealed class CollectionsController(
     }
 
     [HttpGet]
-    public async Task<IActionResult> SelectFolders(int id, string? path)
+    public async Task<IActionResult> SelectFolders(int id, string? path, string? sort, string? dir)
     {
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
@@ -66,7 +66,9 @@ public sealed class CollectionsController(
         try
         {
             var normalized = files.NormalizeRelativePath(path).Replace(Path.DirectorySeparatorChar, '/');
-            var folders = files.List(owner, normalized, "name", "asc")
+            var normalizedSort = NormalizePickerSort(sort);
+            var normalizedDirection = NormalizeDirection(dir);
+            var folders = files.List(owner, normalized, normalizedSort, normalizedDirection)
                 .Where(item => item.IsDirectory)
                 .Select(item => new CollectionFolderPickerItemViewModel
                 {
@@ -84,6 +86,8 @@ public sealed class CollectionsController(
                 OwnerUserName = owner.UserName ?? "",
                 Path = normalized,
                 ParentPath = FileSystemService.GetParent(normalized),
+                Sort = normalizedSort,
+                Direction = normalizedDirection,
                 ExistingFolderCount = collection.Folders.Count,
                 DefaultItemsPerRow = options.Value.DefaultItemsPerRow,
                 Folders = folders
@@ -119,7 +123,12 @@ public sealed class CollectionsController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> AddFolders(int collectionId, string[]? folderPaths, string? returnPath)
+    public async Task<IActionResult> AddFolders(
+        int collectionId,
+        string[]? folderPaths,
+        string? returnPath,
+        string? sort,
+        string? dir)
     {
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
@@ -156,7 +165,9 @@ public sealed class CollectionsController(
         return RedirectToAction(nameof(SelectFolders), new
         {
             id = collection.Id,
-            path = normalizedReturnPath
+            path = normalizedReturnPath,
+            sort = NormalizePickerSort(sort),
+            dir = NormalizeDirection(dir)
         });
     }
 
@@ -243,6 +254,12 @@ public sealed class CollectionsController(
         var value = name?.Trim();
         return value is { Length: >= 1 and <= 80 } ? value : null;
     }
+
+    private static string NormalizePickerSort(string? value) =>
+        string.Equals(value, "date", StringComparison.OrdinalIgnoreCase) ? "date" : "name";
+
+    private static string NormalizeDirection(string? value) =>
+        string.Equals(value, "desc", StringComparison.OrdinalIgnoreCase) ? "desc" : "asc";
 
     private GalleryItemViewModel? GetCollectionFolderItem(ApplicationUser owner, string relativePath)
     {
