@@ -1161,21 +1161,45 @@ img[data-thumbnail-src].thumbnail-loaded {
   gap: 8px;
   margin-top: 16px;
 }
-.collection-folder-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
+.collection-folder-grid {
+  width: 100%;
+  margin-top: 4px;
 }
-.collection-folder-row a {
+.collection-folder-card-link {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+}
+.collection-folder-remove {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+}
+.collection-folder-remove .danger-text {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--danger);
+  background: rgba(8, 11, 22, 0.9);
+  font-size: 0.72rem;
+}
+.collection-folder-card .item-info {
+  position: relative;
+  z-index: 1;
+}
+.collection-folder-path {
   min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.collection-folder-row form,
+.collection-folder-unavailable {
+  opacity: 0.68;
+}
+.collection-folder-unavailable .folder-media {
+  filter: saturate(0.25);
+}
 .collection-card header form,
 .collection-share-create {
   margin: 0;
@@ -1188,8 +1212,5 @@ img[data-thumbnail-src].thumbnail-loaded {
   .collection-card > header {
     align-items: stretch;
     flex-direction: column;
-  }
-  .collection-folder-row {
-    align-items: flex-start;
   }
 }

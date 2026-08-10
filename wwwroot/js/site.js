@@ -18,8 +18,15 @@
   const columns = document.querySelector('#columns');
   const columnsValue = document.querySelector('#columns-value');
   const viewButtons = document.querySelectorAll('[data-view]');
+  const collectionFolderGrids = document.querySelectorAll('.collection-folder-grid');
   const savedView = gallery?.dataset.initialView || localStorage.getItem('gim-gallery-view') || 'grid';
   const savedColumns = Number(gallery?.dataset.initialColumns || localStorage.getItem('gim-gallery-columns'));
+
+  collectionFolderGrids.forEach(grid => {
+    const defaultColumns = Number(grid.dataset.defaultColumns) || 8;
+    const gridColumns = savedColumns >= 2 && savedColumns <= 10 ? savedColumns : defaultColumns;
+    grid.style.setProperty('--columns', gridColumns);
+  });
 
   function setView(view) {
     const normalizedView = view === 'list' ? 'list' : 'grid';

@@ -2,6 +2,14 @@
 @{
     ViewData["Title"] = "Collections";
     var createdLinkId = TempData.Peek("CreatedCollectionShareLinkId") is int id ? id : (int?)null;
+    string ThumbnailUrl(string path, string cacheStamp) => Url.Action("Thumbnail", "Gallery", new
+    {
+        mode = "private",
+        userName = Model.OwnerUserName,
+        path,
+        v = WebGallery.Services.ThumbnailService.CacheVersion,
+        stamp = cacheStamp
+    })!;
 }
 
 <section class="collection-heading">
@@ -36,18 +44,54 @@ else
                 {
                     <p class="muted">Select folders in Gallery, choose this collection, then click Add selected folders.</p>
                 }
-                @foreach (var folder in collection.Folders.OrderBy(x => x.RelativePath))
+                else
                 {
-                    <div class="collection-folder-row">
-                        <a asp-controller="Gallery" asp-action="Index" asp-route-path="@folder.RelativePath">@folder.RelativePath</a>
-                        <form asp-action="RemoveFolder" method="post"><input type="hidden" name="id" value="@folder.Id" /><button class="danger-text" type="submit">Remove</button></form>
+                    <div class="gallery-grid collection-folder-grid" data-default-columns="@Model.DefaultItemsPerRow" style="--columns:@Model.DefaultItemsPerRow">
+                    @foreach (var folder in collection.Folders)
+                    {
+                        var item = folder.Item;
+                        var displayName = item?.Name ?? folder.RelativePath.Replace('\\', '/').Split('/').LastOrDefault() ?? folder.RelativePath;
+                        <article class="gallery-card directory-card collection-folder-card @(item is null ? "collection-folder-unavailable" : "")" data-relative-path="@folder.RelativePath">
+                            @if (item is not null)
+                            {
+                                <a class="collection-folder-card-link" asp-controller="Gallery" asp-action="Index" asp-route-path="@folder.RelativePath" aria-label="Open @displayName"></a>
+                            }
+                            <form class="collection-folder-remove" asp-action="RemoveFolder" method="post">
+                                <input type="hidden" name="id" value="@folder.MembershipId" />
+                                <button class="danger-text" type="submit" aria-label="Remove @displayName from @collection.Name" title="Remove from collection">Remove</button>
+                            </form>
+                            @if (item?.CoverImages.Count > 0)
+                            {
+                                <div class="media folder-media folder-cover">
+                                    <div class="folder-cover-shell">
+                                        <span class="folder-cover-tab" aria-hidden="true"></span>
+                                        <div class="folder-cover-grid cover-count-@item.CoverImages.Count">
+                                            @foreach (var cover in item.CoverImages)
+                                            {
+                                                <span class="thumbnail-slot thumbnail-loading"><img data-thumbnail-src="@ThumbnailUrl(cover.RelativePath, cover.CacheStamp)" alt="" decoding="async" /></span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="media folder-media"><span class="folder-shape"></span></div>
+                            }
+                            <div class="item-info">
+                                <strong title="@displayName">@displayName</strong>
+                                <small class="collection-folder-path" title="@folder.RelativePath">@folder.RelativePath</small>
+                                <small>@(item is null ? "Unavailable" : "Folder")</small>
+                            </div>
+                        </article>
+                    }
                     </div>
                 }
             </div>
 
             <div class="collection-share-block">
                 <div class="eyebrow">SHARE LINKS</div>
-                @foreach (var link in collection.ShareLinks.Where(x => !x.IsRevoked).OrderByDescending(x => x.CreatedAtUtc))
+                @foreach (var link in collection.ShareLinks)
                 {
                     var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
                     <div class="share-row @(link.Id == createdLinkId ? "share-row-created" : "")">

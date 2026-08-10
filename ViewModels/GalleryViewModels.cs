@@ -41,8 +41,24 @@ public sealed class GalleryViewModel
 
 public sealed class CollectionsIndexViewModel
 {
-    public required IReadOnlyList<GalleryCollection> Collections { get; init; }
+    public required string OwnerUserName { get; init; }
+    public required IReadOnlyList<CollectionManagementViewModel> Collections { get; init; }
     public int DefaultItemsPerRow { get; init; } = 8;
+}
+
+public sealed class CollectionManagementViewModel
+{
+    public required int Id { get; init; }
+    public required string Name { get; init; }
+    public required IReadOnlyList<CollectionFolderCardViewModel> Folders { get; init; }
+    public required IReadOnlyList<ShareLink> ShareLinks { get; init; }
+}
+
+public sealed class CollectionFolderCardViewModel
+{
+    public required int MembershipId { get; init; }
+    public required string RelativePath { get; init; }
+    public GalleryItemViewModel? Item { get; init; }
 }
 
 public sealed class LoginViewModel

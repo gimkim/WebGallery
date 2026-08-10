@@ -28,9 +28,28 @@ public sealed class CollectionsController(
             .Include(x => x.ShareLinks.Where(link => !link.IsRevoked))
             .OrderBy(x => x.Name)
             .ToListAsync();
+        var collectionModels = collections.Select(collection => new CollectionManagementViewModel
+        {
+            Id = collection.Id,
+            Name = collection.Name,
+            Folders = collection.Folders
+                .OrderBy(folder => folder.RelativePath, StringComparer.CurrentCultureIgnoreCase)
+                .Select(folder => new CollectionFolderCardViewModel
+                {
+                    MembershipId = folder.Id,
+                    RelativePath = folder.RelativePath,
+                    Item = GetCollectionFolderItem(owner, folder.RelativePath)
+                })
+                .ToList(),
+            ShareLinks = collection.ShareLinks
+                .Where(link => !link.IsRevoked)
+                .OrderByDescending(link => link.CreatedAtUtc)
+                .ToList()
+        }).ToList();
         return View(new CollectionsIndexViewModel
         {
-            Collections = collections,
+            OwnerUserName = owner.UserName ?? "",
+            Collections = collectionModels,
             DefaultItemsPerRow = options.Value.DefaultItemsPerRow
         });
     }
@@ -178,5 +197,15 @@ public sealed class CollectionsController(
     {
         var value = name?.Trim();
         return value is { Length: >= 1 and <= 80 } ? value : null;
+    }
+
+    private GalleryItemViewModel? GetCollectionFolderItem(ApplicationUser owner, string relativePath)
+    {
+        try { return files.GetDirectoryItem(owner, relativePath); }
+        catch (InvalidOperationException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+        catch (IOException) { return null; }
+        catch (ArgumentException) { return null; }
+        catch (NotSupportedException) { return null; }
     }
 }
