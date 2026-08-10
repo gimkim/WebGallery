@@ -41,9 +41,15 @@ else
         var forceExpanded = createdLinkId is not null && collection.ShareLinks.Any(link => link.Id == createdLinkId.Value);
         <article class="panel collection-card" data-collection-collapsible data-collection-id="@collection.Id" data-force-expanded="@(forceExpanded ? "true" : "false")">
             <header>
-                <div><div class="eyebrow">COLLECTION</div><h2>@collection.Name</h2><p class="muted">@collection.Folders.Count folder@(collection.Folders.Count == 1 ? "" : "s")</p></div>
+                <button class="collection-card-heading-toggle" type="button" data-collection-toggle data-collection-name="@collection.Name" aria-controls="@collectionBodyId" aria-expanded="@(forceExpanded ? "true" : "false")">
+                    <span class="collection-disclosure-icon" aria-hidden="true"></span>
+                    <span class="collection-card-heading-copy">
+                        <span class="eyebrow">COLLECTION</span>
+                        <span class="collection-card-title" role="heading" aria-level="2">@collection.Name</span>
+                        <span class="collection-card-meta"><span>@collection.Folders.Count folder@(collection.Folders.Count == 1 ? "" : "s")</span><span aria-hidden="true">&bull;</span><span class="collection-disclosure-state" data-collection-toggle-state>@(forceExpanded ? "Expanded" : "Collapsed")</span></span>
+                    </span>
+                </button>
                 <div class="collection-card-actions">
-                    <button class="button compact collection-collapse-toggle" type="button" data-collection-toggle aria-controls="@collectionBodyId" aria-expanded="@(forceExpanded ? "true" : "false")"><span class="collection-collapse-icon" aria-hidden="true">@(forceExpanded ? "-" : "+")</span><span data-collection-toggle-label>@(forceExpanded ? "Collapse" : "Expand")</span></button>
                     <a class="button compact" asp-action="SelectFolders" asp-route-id="@collection.Id">Add folders</a>
                     <form asp-action="Delete" method="post" data-confirm="Delete this collection and revoke all of its links?"><input type="hidden" name="id" value="@collection.Id" /><button class="danger-text" type="submit">Delete collection</button></form>
                 </div>
@@ -51,6 +57,7 @@ else
 
             <div id="@collectionBodyId" class="collection-card-body" data-collection-body hidden="@(!forceExpanded)">
             <div class="collection-folders">
+                <div class="collection-section-heading"><span class="eyebrow">FOLDERS</span><span class="muted">@collection.Folders.Count total</span></div>
                 @if (collection.Folders.Count == 0)
                 {
                     <p class="muted">This collection is empty. Click Add folders above to open its folder picker.</p>

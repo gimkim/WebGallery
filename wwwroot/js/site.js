@@ -59,8 +59,7 @@
     const collectionId = card.dataset.collectionId;
     const toggle = card.querySelector('[data-collection-toggle]');
     const body = card.querySelector('[data-collection-body]');
-    const label = toggle?.querySelector('[data-collection-toggle-label]');
-    const icon = toggle?.querySelector('.collection-collapse-icon');
+    const stateLabel = toggle?.querySelector('[data-collection-toggle-state]');
     if (!collectionId || !toggle || !body) return;
 
     const storageKey = `gim-collection-expanded-${collectionId}`;
@@ -69,8 +68,10 @@
     const render = persist => {
       body.hidden = !expanded;
       toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      if (label) label.textContent = expanded ? 'Collapse' : 'Expand';
-      if (icon) icon.textContent = expanded ? '-' : '+';
+      const action = expanded ? 'Collapse' : 'Expand';
+      if (stateLabel) stateLabel.textContent = expanded ? 'Expanded' : 'Collapsed';
+      toggle.setAttribute('aria-label', `${action} ${toggle.dataset.collectionName || 'collection'}`);
+      toggle.title = `${action} collection`;
       card.classList.toggle('collection-collapsed', !expanded);
       if (persist) localStorage.setItem(storageKey, expanded ? 'true' : 'false');
     };
