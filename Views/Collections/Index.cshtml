@@ -26,7 +26,7 @@
 
 @if (Model.Collections.Count == 0)
 {
-    <section class="empty-state"><div class="empty-icon">◇</div><h2>No collections yet</h2><p>Create one, then select folders in Gallery and add them to it.</p></section>
+    <section class="empty-state"><div class="empty-icon">◇</div><h2>No collections yet</h2><p>Create a collection first, then use its Add folders button to choose folder cards.</p></section>
 }
 else
 {
@@ -36,13 +36,16 @@ else
         <article class="panel collection-card">
             <header>
                 <div><div class="eyebrow">COLLECTION</div><h2>@collection.Name</h2><p class="muted">@collection.Folders.Count folder@(collection.Folders.Count == 1 ? "" : "s")</p></div>
-                <form asp-action="Delete" method="post" data-confirm="Delete this collection and revoke all of its links?"><input type="hidden" name="id" value="@collection.Id" /><button class="danger-text" type="submit">Delete collection</button></form>
+                <div class="collection-card-actions">
+                    <a class="button compact" asp-action="SelectFolders" asp-route-id="@collection.Id">Add folders</a>
+                    <form asp-action="Delete" method="post" data-confirm="Delete this collection and revoke all of its links?"><input type="hidden" name="id" value="@collection.Id" /><button class="danger-text" type="submit">Delete collection</button></form>
+                </div>
             </header>
 
             <div class="collection-folders">
                 @if (collection.Folders.Count == 0)
                 {
-                    <p class="muted">Select folders in Gallery, choose this collection, then click Add selected folders.</p>
+                    <p class="muted">This collection is empty. Click Add folders above to open its folder picker.</p>
                 }
                 else
                 {

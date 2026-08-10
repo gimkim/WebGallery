@@ -33,7 +33,6 @@ public sealed class GalleryViewModel
     public string? InitialViewMode { get; init; }
     public required IReadOnlyList<GalleryItemViewModel> Items { get; init; }
     public IReadOnlyList<ShareLink> ShareLinks { get; init; } = [];
-    public IReadOnlyList<GalleryCollection> Collections { get; init; } = [];
     public bool IsCollectionShare { get; init; }
     public bool IsCollectionRoot { get; init; }
     public string CollectionName { get; init; } = "";
@@ -59,6 +58,25 @@ public sealed class CollectionFolderCardViewModel
     public required int MembershipId { get; init; }
     public required string RelativePath { get; init; }
     public GalleryItemViewModel? Item { get; init; }
+}
+
+public sealed class CollectionFolderPickerViewModel
+{
+    public required int CollectionId { get; init; }
+    public required string CollectionName { get; init; }
+    public required string OwnerUserName { get; init; }
+    public required string Path { get; init; }
+    public string? ParentPath { get; init; }
+    public int ExistingFolderCount { get; init; }
+    public int DefaultItemsPerRow { get; init; } = 8;
+    public required IReadOnlyList<CollectionFolderPickerItemViewModel> Folders { get; init; }
+}
+
+public sealed class CollectionFolderPickerItemViewModel
+{
+    public required GalleryItemViewModel Item { get; init; }
+    public bool IsAlreadyIncluded { get; init; }
+    public bool ContainsIncludedFolder { get; init; }
 }
 
 public sealed class LoginViewModel

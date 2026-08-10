@@ -54,6 +54,46 @@ public sealed class CollectionsController(
         });
     }
 
+    [HttpGet]
+    public async Task<IActionResult> SelectFolders(int id, string? path)
+    {
+        var owner = await userManager.GetUserAsync(User);
+        if (owner is null) return Challenge();
+        var collection = await db.Collections.Include(x => x.Folders)
+            .SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == owner.Id);
+        if (collection is null) return NotFound();
+
+        try
+        {
+            var normalized = files.NormalizeRelativePath(path).Replace(Path.DirectorySeparatorChar, '/');
+            var folders = files.List(owner, normalized, "name", "asc")
+                .Where(item => item.IsDirectory)
+                .Select(item => new CollectionFolderPickerItemViewModel
+                {
+                    Item = item,
+                    IsAlreadyIncluded = collection.Folders.Any(existing =>
+                        FileSystemService.IsWithinShareScope(existing.RelativePath, item.RelativePath)),
+                    ContainsIncludedFolder = collection.Folders.Any(existing =>
+                        FileSystemService.IsWithinShareScope(item.RelativePath, existing.RelativePath))
+                })
+                .ToList();
+            return View(new CollectionFolderPickerViewModel
+            {
+                CollectionId = collection.Id,
+                CollectionName = collection.Name,
+                OwnerUserName = owner.UserName ?? "",
+                Path = normalized,
+                ParentPath = FileSystemService.GetParent(normalized),
+                ExistingFolderCount = collection.Folders.Count,
+                DefaultItemsPerRow = options.Value.DefaultItemsPerRow,
+                Folders = folders
+            });
+        }
+        catch (InvalidOperationException) { return NotFound(); }
+        catch (UnauthorizedAccessException) { return NotFound(); }
+        catch (IOException) { return NotFound(); }
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Create(string? name)
@@ -79,16 +119,17 @@ public sealed class CollectionsController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> AddFolders(int collectionId, string[] folderPaths, string? returnPath)
+    public async Task<IActionResult> AddFolders(int collectionId, string[]? folderPaths, string? returnPath)
     {
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
         var collection = await db.Collections.Include(x => x.Folders)
             .SingleOrDefaultAsync(x => x.Id == collectionId && x.OwnerUserId == owner.Id);
         if (collection is null) return NotFound();
+        var normalizedReturnPath = files.NormalizeRelativePath(returnPath).Replace(Path.DirectorySeparatorChar, '/');
 
         var candidates = new List<string>();
-        foreach (var path in folderPaths.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var path in (folderPaths ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var normalized = files.NormalizeRelativePath(path).Replace(Path.DirectorySeparatorChar, '/');
             if (string.IsNullOrEmpty(normalized)) continue;
@@ -112,7 +153,11 @@ public sealed class CollectionsController(
         TempData[added > 0 ? "Success" : "Error"] = added > 0
             ? $"Added {added} folder{(added == 1 ? "" : "s")} to {collection.Name}."
             : "No new folders were added.";
-        return RedirectToAction("Index", "Gallery", new { path = files.NormalizeRelativePath(returnPath) });
+        return RedirectToAction(nameof(SelectFolders), new
+        {
+            id = collection.Id,
+            path = normalizedReturnPath
+        });
     }
 
     [HttpPost]

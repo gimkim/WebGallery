@@ -1,0 +1,100 @@
+@model CollectionFolderPickerViewModel
+@{
+    ViewData["Title"] = $"Add folders to {Model.CollectionName}";
+    string PickerUrl(string path) => Url.Action("SelectFolders", "Collections", new { id = Model.CollectionId, path })!;
+    string ThumbnailUrl(string path, string cacheStamp) => Url.Action("Thumbnail", "Gallery", new
+    {
+        mode = "private",
+        userName = Model.OwnerUserName,
+        path,
+        v = WebGallery.Services.ThumbnailService.CacheVersion,
+        stamp = cacheStamp
+    })!;
+}
+
+<section class="collection-heading collection-picker-heading">
+    <div>
+        <div class="eyebrow">COLLECTION FOLDER PICKER</div>
+        <h1>Add folders to @Model.CollectionName</h1>
+        <p class="muted">@Model.ExistingFolderCount folder@(Model.ExistingFolderCount == 1 ? " is" : "s are") already included. Browse to a location, select new folders, then add them.</p>
+    </div>
+    <a class="button" asp-action="Index">Back to Collections</a>
+</section>
+
+<nav class="panel collection-picker-breadcrumbs breadcrumbs" aria-label="Folder picker location">
+    <a href="@PickerUrl("")">Home</a>
+    @{ var segmentPath = ""; }
+    @foreach (var segment in Model.Path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+    {
+        segmentPath = string.IsNullOrEmpty(segmentPath) ? segment : segmentPath + "/" + segment;
+        <span>/</span><a href="@PickerUrl(segmentPath)">@segment</a>
+    }
+</nav>
+
+<form asp-action="AddFolders" method="post">
+    <input type="hidden" name="collectionId" value="@Model.CollectionId" />
+    <input type="hidden" name="returnPath" value="@Model.Path" />
+    <section class="gallery-toolbar panel collection-picker-toolbar">
+        <div class="collection-picker-instructions">
+            <strong>Select folders for @Model.CollectionName</strong>
+            <small>Included folders are marked and cannot be selected twice.</small>
+        </div>
+        <div class="view-controls">
+            <button id="add-folders-to-collection" class="primary" type="submit" disabled>Add selected folders <span id="selected-folder-count">0</span></button>
+            <label class="columns-control">Per row <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
+        </div>
+    </section>
+
+    @if (Model.Folders.Count == 0 && Model.ParentPath is null)
+    {
+        <section class="empty-state"><div class="empty-icon">◇</div><h2>No folders available</h2><p>Add folders to this gallery root, then return here to select them.</p></section>
+    }
+    else
+    {
+        <section id="gallery-items" class="gallery-grid collection-picker-grid" data-initial-columns="" data-initial-view="grid" style="--columns:@Model.DefaultItemsPerRow">
+            @if (Model.ParentPath is not null)
+            {
+                <a class="gallery-card parent-card" href="@PickerUrl(Model.ParentPath)"><div class="media folder-media"><span>↩</span></div><div class="item-info"><strong>Back</strong><small>Parent folder</small></div></a>
+            }
+            @foreach (var folder in Model.Folders)
+            {
+                var item = folder.Item;
+                <article class="gallery-card directory-card collection-picker-card @(folder.IsAlreadyIncluded ? "already-in-collection" : "")" data-relative-path="@item.RelativePath">
+                    @if (folder.IsAlreadyIncluded)
+                    {
+                        <span class="collection-membership-badge">Included</span>
+                    }
+                    else
+                    {
+                        <label class="select-toggle folder-select-toggle" title="Select @item.Name"><input class="folder-select" type="checkbox" name="folderPaths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label>
+                    }
+                    <a class="directory-card-link" href="@PickerUrl(item.RelativePath)">
+                    @if (item.CoverImages.Count > 0)
+                    {
+                        <div class="media folder-media folder-cover">
+                            <div class="folder-cover-shell">
+                                <span class="folder-cover-tab" aria-hidden="true"></span>
+                                <div class="folder-cover-grid cover-count-@item.CoverImages.Count">
+                                    @foreach (var cover in item.CoverImages)
+                                    {
+                                        <span class="thumbnail-slot thumbnail-loading"><img data-thumbnail-src="@ThumbnailUrl(cover.RelativePath, cover.CacheStamp)" alt="" decoding="async" /></span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="media folder-media"><span class="folder-shape"></span></div>
+                    }
+                    <div class="item-info">
+                        <strong title="@item.Name">@item.Name</strong>
+                        <small>@(folder.IsAlreadyIncluded ? "Already included" : folder.ContainsIncludedFolder ? "Contains an included folder" : "Folder")</small>
+                        <small class="list-date">@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                    </div>
+                    </a>
+                </article>
+            }
+        </section>
+    }
+</form>

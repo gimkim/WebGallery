@@ -1152,6 +1152,13 @@ img[data-thumbnail-src].thumbnail-loaded {
   justify-content: space-between;
   gap: 16px;
 }
+.collection-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .collection-card h2 {
   margin: 5px 0;
 }
@@ -1207,10 +1214,46 @@ img[data-thumbnail-src].thumbnail-loaded {
 .collection-share-create {
   margin-top: 4px;
 }
+.collection-picker-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.collection-picker-instructions {
+  display: grid;
+  gap: 3px;
+}
+.collection-picker-instructions small {
+  color: var(--muted);
+}
+.collection-membership-badge {
+  position: absolute;
+  z-index: 4;
+  top: 9px;
+  left: 9px;
+  padding: 5px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(8, 11, 22, 0.9);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.already-in-collection {
+  border-color: var(--accent);
+}
 @media (max-width: 720px) {
   .collection-heading,
   .collection-card > header {
     align-items: stretch;
     flex-direction: column;
+  }
+  .collection-card-actions {
+    justify-content: space-between;
+    width: 100%;
   }
 }

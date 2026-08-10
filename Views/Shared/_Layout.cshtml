@@ -34,11 +34,10 @@
         <nav class="topnav">
             @if (SignInManager.IsSignedIn(User))
             {
-                <a asp-controller="Gallery" asp-action="Index">Gallery</a>
                 <a asp-controller="Collections" asp-action="Index">Collections</a>
                 @if (User.IsInRole("Admin"))
                 {
-                    <a asp-controller="Admin" asp-action="Index">Admin</a>
+                    <a asp-controller="Admin" asp-action="Index">Management</a>
                 }
                 <span class="user-chip">@User.Identity?.Name</span>
                 <form asp-controller="Account" asp-action="Logout" method="post"><button class="link-button" type="submit">Sign out</button></form>

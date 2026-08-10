@@ -16,7 +16,6 @@
         return BrowseUrl(Model.Path, column, next);
     }
     var hasFiles = Model.Items.Any(item => !item.IsDirectory);
-    var hasDirectories = Model.CanManage && Model.Items.Any(item => item.IsDirectory);
     var isSharedView = Model.BrowseMode == "share";
     var breadcrumbRootPath = isSharedView ? Model.ShareRootPath : "";
     var breadcrumbRootName = isSharedView
@@ -105,19 +104,6 @@
         <a class="@(Model.Sort == "date" ? "active" : "")" href="@SortUrl("date")">Date @(Model.Sort == "date" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
     </div>
     <div class="view-controls">
-        @if (hasDirectories)
-        {
-            @if (Model.Collections.Count > 0)
-            {
-                <label class="collection-picker">Collection <select id="collection-target" name="collectionId">@foreach (var collection in Model.Collections) { <option value="@collection.Id">@collection.Name</option> }</select></label>
-                <input type="hidden" name="returnPath" value="@Model.Path" />
-                <button id="add-folders-to-collection" type="submit" formaction="@Url.Action("AddFolders", "Collections")" disabled>Add selected folders <span id="selected-folder-count">0</span></button>
-            }
-            else
-            {
-                <a class="button compact" asp-controller="Collections" asp-action="Index">Create collection</a>
-            }
-        }
         @if (hasFiles)
         {
             <label class="select-all"><input id="select-all" type="checkbox" /> Select all</label>
@@ -144,7 +130,6 @@ else
             if (item.IsDirectory)
             {
                 <article class="gallery-card directory-card" data-relative-path="@item.RelativePath" data-name="@item.Name" data-size="0" data-date="@item.ModifiedUtc.UtcTicks">
-                    @if (Model.CanManage) { <label class="select-toggle folder-select-toggle" title="Select @item.Name"><input class="folder-select" type="checkbox" name="folderPaths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label> }
                     <a class="directory-card-link" href="@BrowseUrl(item.RelativePath)">
                     @if (item.CoverImages.Count > 0)
                     {

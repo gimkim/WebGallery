@@ -302,9 +302,6 @@ public sealed class GalleryController(
                 ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && x.CollectionId == null && x.RelativePath == normalized && !x.IsRevoked).ToListAsync())
                     .OrderByDescending(x => x.CreatedAtUtc).ToList()
                 : [];
-            IReadOnlyList<GalleryCollection> collections = canManage
-                ? await db.Collections.Where(x => x.OwnerUserId == owner.Id).OrderBy(x => x.Name).ToListAsync()
-                : [];
             var normalizedShareRoot = files.NormalizeRelativePath(shareRootPath).Replace('\\', '/');
             var normalizedPath = normalized.Replace('\\', '/');
             var parentPath = FileSystemService.GetParent(normalized);
@@ -331,7 +328,6 @@ public sealed class GalleryController(
                 InitialViewMode = initialViewMode,
                 Items = rows,
                 ShareLinks = links,
-                Collections = collections,
                 IsCollectionShare = collection is not null,
                 CollectionName = collection?.Name ?? ""
             };
