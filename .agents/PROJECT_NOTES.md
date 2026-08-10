@@ -88,5 +88,6 @@ This is the detailed companion to `../AGENTS.md`. Add durable project concepts, 
 - IIS reads user gallery roots as its worker identity, not as the signed-in Gallery user or the Windows desktop user.
 - User-profile and OneDrive roots therefore require an explicit `IIS_IUSRS` Read & Execute ACL on the selected root and descendants.
 - Keep access read-only. The application writes thumbnails and SQLite state to `C:\Web\imagegallery-data`, not to the user's image root.
+- ASP.NET Core Data Protection uses a persistent filesystem key ring at `Gallery:DataProtectionKeysPath` (`C:\Web\imagegallery-data\keys` in production) with application name `WebGallery`. This key directory is deployment state and must retain its files across app-pool restarts and deployments; the IIS app-pool identity needs Modify access. A first deployment of this fix invalidates cookies created with the previous ephemeral key ring once, after which the 14-day sliding authentication cookie survives normal deployments.
 - Admin root-folder save now checks that the directory exists and can be enumerated, returning an English validation message for missing, inaccessible, or invalid paths.
 - For OneDrive, pin gallery files locally with **Always keep on this device** before depending on unattended IIS delivery.

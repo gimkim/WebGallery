@@ -15,7 +15,7 @@ Prerequisites
 Recommended folders
 -------------------
 Application:  C:\Web\imagegallery
-Database/cache: C:\Web\imagegallery-data
+Database/cache/keys: C:\Web\imagegallery-data
 Default images: C:\Web\gallery-content
 
 Extract this ZIP directly into C:\Web\imagegallery. The WebGallery.dll and
@@ -38,6 +38,7 @@ Run these commands from an elevated PowerShell window. Change WebGalleryPool
 if a different application-pool name is used.
 
   New-Item -ItemType Directory -Force C:\Web\imagegallery-data | Out-Null
+  New-Item -ItemType Directory -Force C:\Web\imagegallery-data\keys | Out-Null
   New-Item -ItemType Directory -Force C:\Web\gallery-content | Out-Null
   icacls C:\Web\imagegallery /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(RX)"
   icacls C:\Web\imagegallery-data /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(M)"

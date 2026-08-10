@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using WebGallery.Data;
 using WebGallery.Models;
@@ -11,6 +12,14 @@ var connectionString = builder.Configuration.GetConnectionString("Gallery")
 var dataSource = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connectionString).DataSource;
 var databasePath = Path.GetFullPath(dataSource, builder.Environment.ContentRootPath);
 Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+var dataProtectionKeysPath = Path.GetFullPath(
+    builder.Configuration["Gallery:DataProtectionKeysPath"] ?? "App_Data/keys",
+    builder.Environment.ContentRootPath);
+Directory.CreateDirectory(dataProtectionKeysPath);
+
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath))
+    .SetApplicationName("WebGallery");
 
 builder.Services.AddDbContext<GalleryDbContext>(options =>
     options.UseSqlite($"Data Source={databasePath}"));
