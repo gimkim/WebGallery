@@ -27,7 +27,7 @@
     <div>
         <div class="eyebrow">COLLECTION FOLDER PICKER</div>
         <h1>Add folders to @Model.CollectionName</h1>
-        <p class="muted">@Model.ExistingFolderCount folder@(Model.ExistingFolderCount == 1 ? " is" : "s are") already included. Browse to a location, select new folders, then add them.</p>
+        <p class="muted">@Model.ExistingFolderCount folder@(Model.ExistingFolderCount == 1 ? " is" : "s are") already included. Select new folders or clear a checked folder to remove it, then apply the changes.</p>
     </div>
     <a class="button" asp-action="Index">Back to Collections</a>
 </section>
@@ -54,7 +54,7 @@
             <a class="@(Model.Sort == "date" ? "active" : "")" href="@SortUrl("date")">Date @(Model.Sort == "date" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
         </div>
         <div class="view-controls">
-            <button id="add-folders-to-collection" class="primary" type="submit" disabled>Add selected folders <span id="selected-folder-count">0</span></button>
+            <button id="add-folders-to-collection" class="primary" type="submit" disabled>Apply folder changes <span id="selected-folder-count">0</span></button>
             <label class="columns-control">Per row <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
         </div>
     </section>
@@ -74,9 +74,19 @@
             {
                 var item = folder.Item;
                 <article class="gallery-card directory-card collection-picker-card @(folder.IsAlreadyIncluded ? "already-in-collection" : "")" data-relative-path="@item.RelativePath">
-                    @if (folder.IsAlreadyIncluded)
+                    @if (folder.DirectMembershipId.HasValue)
                     {
+                        <input type="hidden" name="visibleMembershipIds" value="@folder.DirectMembershipId.Value" />
+                        <label class="select-toggle folder-select-toggle collection-membership-toggle" title="Clear to remove @item.Name from this collection">
+                            <input class="folder-select existing-folder-select" type="checkbox" name="keptMembershipIds" value="@folder.DirectMembershipId.Value" checked data-initial-checked="true" />
+                            <span aria-hidden="true">✓</span>
+                            <span class="sr-only">Included; clear to remove @item.Name</span>
+                        </label>
                         <span class="collection-membership-badge">Included</span>
+                    }
+                    else if (folder.IncludedByParentPath is not null)
+                    {
+                        <span class="collection-membership-badge inherited-membership-badge" title="Included by @folder.IncludedByParentPath">Included via parent</span>
                     }
                     else
                     {
@@ -103,7 +113,7 @@
                     }
                     <div class="item-info">
                         <strong title="@item.Name">@item.Name</strong>
-                        <small>@(folder.IsAlreadyIncluded ? "Already included" : folder.ContainsIncludedFolder ? "Contains an included folder" : "Folder")</small>
+                        <small>@(folder.DirectMembershipId.HasValue ? "Included — clear the checkbox to remove" : folder.IncludedByParentPath is not null ? $"Included via {folder.IncludedByParentPath}" : folder.ContainsIncludedFolder ? "Contains an included folder" : "Folder")</small>
                         <small class="list-date">@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
                     </div>
                     </a>

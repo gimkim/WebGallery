@@ -350,7 +350,7 @@
   const addFoldersButton = document.querySelector('#add-folders-to-collection');
   const selectedFolderCount = document.querySelector('#selected-folder-count');
   function updateFolderSelection() {
-    const count = folderSelects.filter(input => input.checked).length;
+    const count = folderSelects.filter(input => input.checked !== (input.dataset.initialChecked === 'true')).length;
     folderSelects.forEach(input => input.closest('.gallery-card')?.classList.toggle('selected', input.checked));
     if (selectedFolderCount) selectedFolderCount.textContent = count;
     if (addFoldersButton) addFoldersButton.disabled = count === 0;

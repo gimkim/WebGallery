@@ -97,7 +97,9 @@ public sealed class CollectionFolderPickerViewModel
 public sealed class CollectionFolderPickerItemViewModel
 {
     public required GalleryItemViewModel Item { get; init; }
-    public bool IsAlreadyIncluded { get; init; }
+    public int? DirectMembershipId { get; init; }
+    public string? IncludedByParentPath { get; init; }
+    public bool IsAlreadyIncluded => DirectMembershipId.HasValue || IncludedByParentPath is not null;
     public bool ContainsIncludedFolder { get; init; }
 }
 

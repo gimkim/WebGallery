@@ -1749,6 +1749,13 @@ select,
   font-size: 0.7rem;
   font-weight: 700;
 }
+.collection-membership-toggle + .collection-membership-badge {
+  left: 48px;
+}
+.inherited-membership-badge {
+  border-color: var(--muted);
+  color: var(--muted);
+}
 .already-in-collection {
   border-color: var(--accent);
 }

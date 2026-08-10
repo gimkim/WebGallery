@@ -73,13 +73,24 @@ public sealed class CollectionsController(
             var normalizedDirection = NormalizeDirection(dir);
             var folders = files.List(owner, normalized, normalizedSort, normalizedDirection)
                 .Where(item => item.IsDirectory)
-                .Select(item => new CollectionFolderPickerItemViewModel
+                .Select(item =>
                 {
-                    Item = item,
-                    IsAlreadyIncluded = collection.Folders.Any(existing =>
-                        FileSystemService.IsWithinShareScope(existing.RelativePath, item.RelativePath)),
-                    ContainsIncludedFolder = collection.Folders.Any(existing =>
-                        FileSystemService.IsWithinShareScope(item.RelativePath, existing.RelativePath))
+                    var directMembership = collection.Folders.FirstOrDefault(existing =>
+                        string.Equals(existing.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase));
+                    var includedByParent = collection.Folders
+                        .Where(existing => !string.Equals(existing.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase)
+                            && FileSystemService.IsWithinShareScope(existing.RelativePath, item.RelativePath))
+                        .OrderByDescending(existing => existing.RelativePath.Length)
+                        .FirstOrDefault();
+                    return new CollectionFolderPickerItemViewModel
+                    {
+                        Item = item,
+                        DirectMembershipId = directMembership?.Id,
+                        IncludedByParentPath = includedByParent?.RelativePath,
+                        ContainsIncludedFolder = collection.Folders.Any(existing =>
+                            !string.Equals(existing.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase)
+                            && FileSystemService.IsWithinShareScope(item.RelativePath, existing.RelativePath))
+                    };
                 })
                 .ToList();
             return View(new CollectionFolderPickerViewModel
@@ -129,6 +140,8 @@ public sealed class CollectionsController(
     public async Task<IActionResult> AddFolders(
         int collectionId,
         string[]? folderPaths,
+        int[]? visibleMembershipIds,
+        int[]? keptMembershipIds,
         string? returnPath,
         string? sort,
         string? dir)
@@ -139,6 +152,15 @@ public sealed class CollectionsController(
             .SingleOrDefaultAsync(x => x.Id == collectionId && x.OwnerUserId == owner.Id);
         if (collection is null) return NotFound();
         var normalizedReturnPath = files.NormalizeRelativePath(returnPath).Replace(Path.DirectorySeparatorChar, '/');
+
+        var visibleIds = (visibleMembershipIds ?? []).ToHashSet();
+        var keptIds = (keptMembershipIds ?? []).ToHashSet();
+        var removedMemberships = collection.Folders
+            .Where(folder => visibleIds.Contains(folder.Id) && !keptIds.Contains(folder.Id))
+            .ToList();
+        db.CollectionFolders.RemoveRange(removedMemberships);
+        foreach (var removedMembership in removedMemberships)
+            collection.Folders.Remove(removedMembership);
 
         var candidates = new List<string>();
         foreach (var path in (folderPaths ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
@@ -162,9 +184,14 @@ public sealed class CollectionsController(
             added++;
         }
         await db.SaveChangesAsync();
-        TempData[added > 0 ? "Success" : "Error"] = added > 0
-            ? $"Added {added} folder{(added == 1 ? "" : "s")} to {collection.Name}."
-            : "No new folders were added.";
+        var removed = removedMemberships.Count;
+        TempData[added > 0 || removed > 0 ? "Success" : "Error"] = (added, removed) switch
+        {
+            (> 0, > 0) => $"Added {added} and removed {removed} folder{(removed == 1 ? "" : "s")} in {collection.Name}.",
+            (> 0, 0) => $"Added {added} folder{(added == 1 ? "" : "s")} to {collection.Name}.",
+            (0, > 0) => $"Removed {removed} folder{(removed == 1 ? "" : "s")} from {collection.Name}.",
+            _ => "No collection changes were made."
+        };
         return RedirectToAction(nameof(SelectFolders), new
         {
             id = collection.Id,
