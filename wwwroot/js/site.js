@@ -82,6 +82,38 @@
     render(forceExpanded);
   });
 
+  document.querySelectorAll('[data-collection-section]').forEach(section => {
+    const collectionId = section.dataset.collectionId;
+    const sectionKey = section.dataset.sectionKey;
+    const toggle = section.querySelector('[data-section-toggle]');
+    const body = section.querySelector('[data-section-body]');
+    const stateLabel = toggle?.querySelector('[data-section-state]');
+    if (!collectionId || !sectionKey || !toggle || !body) return;
+
+    const storageKey = `gim-collection-${collectionId}-${sectionKey}-expanded`;
+    const savedState = localStorage.getItem(storageKey);
+    const forceExpanded = section.dataset.forceExpanded === 'true';
+    let expanded = forceExpanded || (savedState === null
+      ? section.dataset.defaultExpanded !== 'false'
+      : savedState === 'true');
+    const render = persist => {
+      body.hidden = !expanded;
+      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      const sectionName = sectionKey === 'share-links' ? 'share links' : 'folders';
+      const action = expanded ? 'Collapse' : 'Expand';
+      if (stateLabel) stateLabel.textContent = expanded ? 'Expanded' : 'Collapsed';
+      toggle.setAttribute('aria-label', `${action} ${sectionName}`);
+      toggle.title = `${action} ${sectionName}`;
+      section.classList.toggle('collection-section-collapsed', !expanded);
+      if (persist) localStorage.setItem(storageKey, expanded ? 'true' : 'false');
+    };
+    toggle.addEventListener('click', () => {
+      expanded = !expanded;
+      render(true);
+    });
+    render(forceExpanded);
+  });
+
   const thumbnailStates = new WeakMap();
   const thumbnailImages = [...document.querySelectorAll('img[data-thumbnail-src]')];
   const maximumThumbnailRequests = 12;

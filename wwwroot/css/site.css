@@ -1472,8 +1472,7 @@ select,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.collection-card-meta,
-.collection-section-heading {
+.collection-card-meta {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1507,20 +1506,73 @@ select,
   flex-wrap: wrap;
 }
 .collection-card-body {
+  display: grid;
+  gap: 12px;
   min-width: 0;
+  padding-top: 14px;
 }
 .collection-card:not(.collection-collapsed) > header {
-  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
-.collection-section-heading {
-  justify-content: space-between;
+.collection-subsection {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: rgba(8, 11, 22, 0.38);
 }
-.collection-folders,
-.collection-share-block {
+.collection-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: rgba(19, 27, 52, 0.72);
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+  cursor: pointer;
+}
+.collection-section-toggle:hover {
+  background: rgba(24, 231, 255, 0.08);
+  color: var(--accent);
+}
+.collection-section-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+.collection-section-toggle[aria-expanded="true"] .collection-disclosure-icon {
+  transform: rotate(45deg);
+}
+.collection-section-title {
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.collection-section-count {
+  min-width: 26px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-align: center;
+}
+.collection-section-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.collection-section-body {
+  min-width: 0;
+  padding: 12px;
+}
+.collection-share-content {
   display: grid;
   gap: 8px;
-  margin-top: 16px;
+}
+.collection-section-collapsed .collection-section-toggle {
+  border-bottom-color: transparent;
 }
 .collection-folder-grid {
   width: 100%;

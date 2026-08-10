@@ -38,6 +38,8 @@ else
     @foreach (var collection in Model.Collections)
     {
         var collectionBodyId = $"collection-body-{collection.Id}";
+        var foldersBodyId = $"collection-folders-{collection.Id}";
+        var shareLinksBodyId = $"collection-share-links-{collection.Id}";
         var forceExpanded = createdLinkId is not null && collection.ShareLinks.Any(link => link.Id == createdLinkId.Value);
         <article class="panel collection-card" data-collection-collapsible data-collection-id="@collection.Id" data-force-expanded="@(forceExpanded ? "true" : "false")">
             <header>
@@ -56,8 +58,14 @@ else
             </header>
 
             <div id="@collectionBodyId" class="collection-card-body" data-collection-body hidden="@(!forceExpanded)">
-            <div class="collection-folders">
-                <div class="collection-section-heading"><span class="eyebrow">FOLDERS</span><span class="muted">@collection.Folders.Count total</span></div>
+            <section class="collection-subsection collection-folders" data-collection-section data-collection-id="@collection.Id" data-section-key="folders" data-default-expanded="true">
+                <button class="collection-section-toggle" type="button" data-section-toggle aria-controls="@foldersBodyId" aria-expanded="true">
+                    <span class="collection-disclosure-icon" aria-hidden="true"></span>
+                    <span class="collection-section-title">Folders</span>
+                    <span class="collection-section-count">@collection.Folders.Count</span>
+                    <span class="collection-section-state" data-section-state>Expanded</span>
+                </button>
+                <div id="@foldersBodyId" class="collection-section-body" data-section-body>
                 @if (collection.Folders.Count == 0)
                 {
                     <p class="muted">This collection is empty. Click Add folders above to open its folder picker.</p>
@@ -105,10 +113,17 @@ else
                     }
                     </div>
                 }
-            </div>
+                </div>
+            </section>
 
-            <div class="collection-share-block">
-                <div class="eyebrow">SHARE LINKS</div>
+            <section class="collection-subsection collection-share-block" data-collection-section data-collection-id="@collection.Id" data-section-key="share-links" data-default-expanded="true" data-force-expanded="@(forceExpanded ? "true" : "false")">
+                <button class="collection-section-toggle" type="button" data-section-toggle aria-controls="@shareLinksBodyId" aria-expanded="true">
+                    <span class="collection-disclosure-icon" aria-hidden="true"></span>
+                    <span class="collection-section-title">Share links</span>
+                    <span class="collection-section-count">@collection.ShareLinks.Count</span>
+                    <span class="collection-section-state" data-section-state>Expanded</span>
+                </button>
+                <div id="@shareLinksBodyId" class="collection-section-body collection-share-content" data-section-body>
                 @foreach (var link in collection.ShareLinks)
                 {
                     var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
@@ -123,7 +138,8 @@ else
                     <input type="hidden" name="viewMode" value="grid" />
                     <button class="primary" type="submit" disabled="@(collection.Folders.Count == 0)">Create share link</button>
                 </form>
-            </div>
+                </div>
+            </section>
             </div>
         </article>
     }
