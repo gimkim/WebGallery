@@ -1,0 +1,10 @@
+@model CooldownViewModel
+@{ ViewData["Title"] = Model.Title; }
+<section class="auth-card panel">
+    <div class="eyebrow">LINK PROTECTION</div>
+    <h1>@Model.Title</h1>
+    <div class="alert error cooldown-alert" role="status" data-cooldown="@Model.RetryAfterSeconds">
+        <span>@Model.Message</span>
+        <strong data-cooldown-value>@Model.RetryAfterSeconds seconds</strong>
+    </div>
+</section>

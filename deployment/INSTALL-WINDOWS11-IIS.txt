@@ -1,0 +1,68 @@
+WebGallery - Windows 11 / IIS deployment
+=========================================
+
+This ZIP is a clean framework-dependent .NET 10 deployment. Its files are the
+IIS application root. It does not contain users, passwords, SQLite production
+data, thumbnail cache, or gallery images.
+
+Prerequisites
+-------------
+1. Enable Internet Information Services (IIS) and IIS Management Console in
+   Windows Features.
+2. After IIS is enabled, install the latest supported .NET 10 Hosting Bundle.
+3. Restart Windows or restart IIS after installing the Hosting Bundle.
+
+Recommended folders
+-------------------
+Application:  C:\Web\imagegallery
+Database/cache: C:\Web\imagegallery-data
+Default images: C:\Web\gallery-content
+
+Extract this ZIP directly into C:\Web\imagegallery. The WebGallery.dll and
+web.config files must be directly inside that folder, not one folder deeper.
+
+IIS configuration
+-----------------
+1. Create an application pool, for example WebGalleryPool.
+2. Set .NET CLR Version to No Managed Code, Integrated pipeline, and disable
+   32-bit applications on a normal 64-bit Windows 11 installation.
+3. Under an existing IIS site, add an application with alias Gallery,
+   physical path C:\Web\imagegallery, and the WebGalleryPool application pool.
+4. For the Gallery application, enable Anonymous Authentication. Disable Basic,
+   Windows, Forms, and ASP.NET Impersonation authentication. ASP.NET Core
+   Identity provides the application's own login page.
+
+Folder permissions
+------------------
+Run these commands from an elevated PowerShell window. Change WebGalleryPool
+if a different application-pool name is used.
+
+  New-Item -ItemType Directory -Force C:\Web\imagegallery-data | Out-Null
+  New-Item -ItemType Directory -Force C:\Web\gallery-content | Out-Null
+  icacls C:\Web\imagegallery /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(RX)"
+  icacls C:\Web\imagegallery-data /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(M)"
+  icacls C:\Web\gallery-content /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(RX)"
+
+Grant Read & Execute only to any other user gallery roots. A OneDrive-backed
+root must be marked Always keep on this device.
+
+First start
+-----------
+On a new installation, the application creates its SQLite database and a
+random admin password in:
+
+  C:\Web\imagegallery-data\bootstrap-admin.txt
+
+Sign in as admin, change the password in Admin, and securely delete that
+bootstrap file. If moving an existing installation, stop the old application
+and copy its SQLite data consistently instead of using the generated account.
+
+Configuration
+-------------
+appsettings.json currently uses the recommended paths above. Edit its Gallery
+and ConnectionStrings:Gallery values before first start if different paths are
+required.
+
+For HTTPS/public access, configure the IIS site binding, certificate, DNS,
+firewall, and router or tunnel separately. Do not expose this application over
+unencrypted HTTP on the Internet.

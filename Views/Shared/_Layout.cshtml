@@ -1,0 +1,60 @@
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.Extensions.Options
+@using WebGallery.Data
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject GalleryDbContext GalleryDb
+@inject IOptions<GalleryOptions> GalleryOptions
+@{
+    var appTitle = (await GalleryDb.AppSettings.FindAsync("AppTitle"))?.Value ?? GalleryOptions.Value.AppTitle;
+    var themeValue = (await GalleryDb.AppSettings.FindAsync("Theme"))?.Value;
+    var theme = string.Equals(themeValue, "modern", StringComparison.OrdinalIgnoreCase) ? "modern" : "retro";
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>@ViewData["Title"] - @appTitle</title>
+    @if (theme == "modern")
+    {
+        <link rel="stylesheet" href="~/css/site-modern.css" asp-append-version="true" />
+    }
+    else
+    {
+        <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    }
+</head>
+<body class="theme-@theme">
+    <header class="topbar">
+        <a class="brand" asp-controller="Gallery" asp-action="Index">
+            <span class="brand-mark">G</span><span>@appTitle</span>
+        </a>
+        <nav class="topnav">
+            @if (SignInManager.IsSignedIn(User))
+            {
+                <a asp-controller="Gallery" asp-action="Index">Gallery</a>
+                <a asp-controller="Collections" asp-action="Index">Collections</a>
+                @if (User.IsInRole("Admin"))
+                {
+                    <a asp-controller="Admin" asp-action="Index">Admin</a>
+                }
+                <span class="user-chip">@User.Identity?.Name</span>
+                <form asp-controller="Account" asp-action="Logout" method="post"><button class="link-button" type="submit">Sign out</button></form>
+            }
+            else
+            {
+                <a asp-controller="Account" asp-action="Login">Sign in</a>
+            }
+        </nav>
+    </header>
+    <main class="page-shell">
+        @if (TempData["Success"] is string success) { <div class="alert success">@success</div> }
+        @if (TempData["Error"] is string error) { <div class="alert error">@error</div> }
+        @RenderBody()
+    </main>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

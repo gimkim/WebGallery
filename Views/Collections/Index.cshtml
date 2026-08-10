@@ -1,0 +1,68 @@
+@model CollectionsIndexViewModel
+@{
+    ViewData["Title"] = "Collections";
+    var createdLinkId = TempData.Peek("CreatedCollectionShareLinkId") is int id ? id : (int?)null;
+}
+
+<section class="collection-heading">
+    <div><div class="eyebrow">CURATED SHARING</div><h1>Collections</h1><p class="muted">Group folders from different locations and share them with one revocable link.</p></div>
+    <a class="button" asp-controller="Gallery" asp-action="Index">Back to Gallery</a>
+</section>
+
+<section class="panel collection-create-panel">
+    <form asp-action="Create" method="post">
+        <label><span>New collection name</span><input name="name" maxlength="80" required placeholder="Example: Event highlights" /></label>
+        <button class="primary" type="submit">Create collection</button>
+    </form>
+</section>
+
+@if (Model.Collections.Count == 0)
+{
+    <section class="empty-state"><div class="empty-icon">◇</div><h2>No collections yet</h2><p>Create one, then select folders in Gallery and add them to it.</p></section>
+}
+else
+{
+    <section class="collection-list">
+    @foreach (var collection in Model.Collections)
+    {
+        <article class="panel collection-card">
+            <header>
+                <div><div class="eyebrow">COLLECTION</div><h2>@collection.Name</h2><p class="muted">@collection.Folders.Count folder@(collection.Folders.Count == 1 ? "" : "s")</p></div>
+                <form asp-action="Delete" method="post" data-confirm="Delete this collection and revoke all of its links?"><input type="hidden" name="id" value="@collection.Id" /><button class="danger-text" type="submit">Delete collection</button></form>
+            </header>
+
+            <div class="collection-folders">
+                @if (collection.Folders.Count == 0)
+                {
+                    <p class="muted">Select folders in Gallery, choose this collection, then click Add selected folders.</p>
+                }
+                @foreach (var folder in collection.Folders.OrderBy(x => x.RelativePath))
+                {
+                    <div class="collection-folder-row">
+                        <a asp-controller="Gallery" asp-action="Index" asp-route-path="@folder.RelativePath">@folder.RelativePath</a>
+                        <form asp-action="RemoveFolder" method="post"><input type="hidden" name="id" value="@folder.Id" /><button class="danger-text" type="submit">Remove</button></form>
+                    </div>
+                }
+            </div>
+
+            <div class="collection-share-block">
+                <div class="eyebrow">SHARE LINKS</div>
+                @foreach (var link in collection.ShareLinks.Where(x => !x.IsRevoked).OrderByDescending(x => x.CreatedAtUtc))
+                {
+                    var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
+                    <div class="share-row @(link.Id == createdLinkId ? "share-row-created" : "")">
+                        <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
+                        <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><button class="danger-text" type="submit">Revoke</button></form>
+                    </div>
+                }
+                <form asp-action="CreateShare" method="post" class="collection-share-create">
+                    <input type="hidden" name="collectionId" value="@collection.Id" />
+                    <input type="hidden" name="itemsPerRow" value="@Model.DefaultItemsPerRow" />
+                    <input type="hidden" name="viewMode" value="grid" />
+                    <button class="primary" type="submit" disabled="@(collection.Folders.Count == 0)">Create share link</button>
+                </form>
+            </div>
+        </article>
+    }
+    </section>
+}

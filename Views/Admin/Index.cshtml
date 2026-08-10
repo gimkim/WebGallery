@@ -1,0 +1,43 @@
+@model AdminIndexViewModel
+@{ ViewData["Title"] = "System settings"; }
+<section class="gallery-heading"><div><div class="eyebrow">ADMIN</div><h1>System settings</h1><p class="muted">Manage the site title, visual theme, user accounts, and each user's root folder.</p></div></section>
+
+<section class="panel admin-section">
+    <h2>System</h2>
+    <form asp-action="SaveSettings" method="post" class="admin-grid-form">
+        <label>Site title<input name="appTitle" value="@Model.AppTitle" required /></label>
+        <label>Theme<select name="theme" required><option value="retro" selected="@(Model.Theme == "retro")">Retro</option><option value="modern" selected="@(Model.Theme == "modern")">Modern</option></select><small>Retro keeps the current pixel-style interface. Modern uses a softer contemporary interface.</small></label>
+        <label>Concurrent thumbnail jobs<input name="thumbnailConcurrency" type="number" min="1" max="16" value="@Model.ThumbnailConcurrency" required /><small>Limits CPU-heavy thumbnail generation across the entire server. Recommended: 2–4.</small></label>
+        <button class="primary" type="submit">Save</button>
+    </form>
+</section>
+
+<section class="panel admin-section">
+    <h2>Create user</h2>
+    <form asp-action="CreateUser" method="post" class="admin-grid-form">
+        <label>Username<input name="userName" required /></label>
+        <label>Display name<input name="displayName" required /></label>
+        <label class="wide">Root folder<input name="rootFolder" placeholder="D:\Photos\Somchai" required /></label>
+        <label>Password<input name="password" type="password" minlength="10" required /></label>
+        <label class="check"><input name="isAdmin" type="checkbox" value="true" /> Admin</label>
+        <button class="primary" type="submit">Create user</button>
+    </form>
+</section>
+
+<section class="admin-users">
+    @foreach (var user in Model.Users)
+    {
+        <article class="panel user-card">
+            <div class="user-title"><div class="avatar">@user.UserName[..1].ToUpperInvariant()</div><div><h2>@user.UserName</h2><small>@(user.IsAdmin ? "Administrator" : "User")</small></div></div>
+            <form asp-action="UpdateUser" method="post" class="stack-form">
+                <input type="hidden" name="id" value="@user.Id" />
+                <label>Display name<input name="displayName" value="@user.DisplayName" required /></label>
+                <label>Root folder<input name="rootFolder" value="@user.RootFolder" required /></label>
+                <label>New password<input name="newPassword" type="password" minlength="10" placeholder="Leave blank to keep the current password" /></label>
+                <label class="check"><input name="isAdmin" type="checkbox" value="true" checked="@user.IsAdmin" /> Admin</label>
+                <button class="primary" type="submit">Save</button>
+            </form>
+            <form asp-action="DeleteUser" method="post" data-confirm="Delete @user.UserName? Files will not be deleted."><input type="hidden" name="id" value="@user.Id" /><button class="danger-text" type="submit">Delete account</button></form>
+        </article>
+    }
+</section>

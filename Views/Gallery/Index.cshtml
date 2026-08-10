@@ -1,0 +1,221 @@
+@model GalleryViewModel
+@inject Microsoft.Extensions.Options.IOptions<GalleryOptions> GalleryOptions
+@{
+    ViewData["Title"] = Model.Title;
+    string BrowseUrl(string path, string? sort = null, string? dir = null, string? focus = null) => Model.BrowseMode switch
+    {
+        "share" => Url.Action("Share", new { token = Model.ShareToken, path, sort = sort ?? Model.Sort, dir = dir ?? Model.Direction, focus })!,
+        _ => Url.Action("Index", new { path, sort = sort ?? Model.Sort, dir = dir ?? Model.Direction, focus })!
+    };
+    string AssetUrl(string action, string path) => Url.Action(action, new { mode = Model.BrowseMode, userName = Model.OwnerUserName, token = Model.ShareToken, path })!;
+    string ThumbnailUrl(string path, string cacheStamp) => $"{AssetUrl("Thumbnail", path)}&v={WebGallery.Services.ThumbnailService.CacheVersion}&stamp={cacheStamp}";
+    string ViewFileUrl(string path, string cacheStamp) => $"{AssetUrl("ViewFile", path)}&stamp={cacheStamp}";
+    string SortUrl(string column)
+    {
+        var next = Model.Sort == column && Model.Direction == "asc" ? "desc" : "asc";
+        return BrowseUrl(Model.Path, column, next);
+    }
+    var hasFiles = Model.Items.Any(item => !item.IsDirectory);
+    var hasDirectories = Model.CanManage && Model.Items.Any(item => item.IsDirectory);
+    var isSharedView = Model.BrowseMode == "share";
+    var breadcrumbRootPath = isSharedView ? Model.ShareRootPath : "";
+    var breadcrumbRootName = isSharedView
+        ? (string.IsNullOrEmpty(Model.ShareRootPath) ? Model.Title : Model.ShareRootPath.Split('/').Last())
+        : "Home";
+    var breadcrumbTail = isSharedView && Model.Path.StartsWith(Model.ShareRootPath, StringComparison.OrdinalIgnoreCase)
+        ? Model.Path[Model.ShareRootPath.Length..].TrimStart('/')
+        : Model.Path;
+    var openSharePanelAfterCreate = TempData.Peek("OpenSharePanel") is true;
+    var createdShareLinkId = TempData.Peek("CreatedShareLinkId") is int id ? id : (int?)null;
+}
+<section class="gallery-heading">
+    <div>
+        <nav class="breadcrumbs" aria-label="Current location">
+            @if (Model.IsCollectionShare)
+            {
+                <a href="@BrowseUrl("")">@Model.CollectionName</a>
+                @if (!Model.IsCollectionRoot)
+                {
+                    var segmentPath = Model.ShareRootPath;
+                    <span>/</span><a href="@BrowseUrl(segmentPath)">@segmentPath.Split('/').Last()</a>
+                    foreach (var segment in breadcrumbTail.Split('/', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        segmentPath += "/" + segment;
+                        <span>/</span><a href="@BrowseUrl(segmentPath)">@segment</a>
+                    }
+                }
+            }
+            else
+            {
+                <a href="@BrowseUrl(breadcrumbRootPath)">@breadcrumbRootName</a>
+                var segmentPath = breadcrumbRootPath;
+                foreach (var segment in breadcrumbTail.Split('/', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    segmentPath = string.IsNullOrEmpty(segmentPath) ? segment : segmentPath + "/" + segment;
+                    <span>/</span><a href="@BrowseUrl(segmentPath)">@segment</a>
+                }
+            }
+        </nav>
+    </div>
+    <div class="heading-actions">
+        <a class="button download-button" href="@AssetUrl("DownloadFolder", Model.Path)"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>@(Model.IsCollectionRoot ? "Download collection .zip" : "Download folder .zip")</span></a>
+        @if (Model.CanManage) { <button class="button" type="button" data-toggle-panel="share-panel">Share</button> }
+    </div>
+</section>
+
+@if (Model.CanManage)
+{
+    <section id="share-panel" class="panel access-panel" data-open-after-create="@(openSharePanelAfterCreate ? "true" : "false")" hidden>
+        <div>
+            <div class="eyebrow">SHARE LINKS</div>
+            <h2>Share @(string.IsNullOrEmpty(Model.Path) ? "Home" : Model.Path)</h2>
+        </div>
+        <div class="access-help">
+            <p>Every folder is private. Anyone with a share link can access only this folder and its subfolders.</p>
+            @foreach (var link in Model.ShareLinks)
+            {
+                var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
+                <div class="share-row @(link.Id == createdShareLinkId ? "share-row-created" : "")">
+                    <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
+                    <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><input type="hidden" name="path" value="@Model.Path" /><button class="danger-text" type="submit">Revoke</button></form>
+                </div>
+            }
+            <form asp-action="CreateShare" method="post" data-create-share>
+                <input type="hidden" name="path" value="@Model.Path" />
+                <input type="hidden" name="sort" value="@Model.Sort" />
+                <input type="hidden" name="dir" value="@Model.Direction" />
+                <input type="hidden" name="itemsPerRow" value="@Model.DefaultItemsPerRow" />
+                <input type="hidden" name="viewMode" value="grid" />
+                <button class="primary" type="submit">Create share link</button>
+            </form>
+        </div>
+    </section>
+}
+
+<form id="selection-form" asp-action="DownloadSelected" method="post">
+<input type="hidden" name="mode" value="@Model.BrowseMode" />
+<input type="hidden" name="userName" value="@Model.OwnerUserName" />
+<input type="hidden" name="token" value="@Model.ShareToken" />
+<input type="hidden" name="currentPath" value="@Model.Path" />
+<section class="gallery-toolbar panel">
+    <div class="sort-group" aria-label="Sort order">
+        <span>Sort by</span>
+        <a class="@(Model.Sort == "name" ? "active" : "")" href="@SortUrl("name")">Name @(Model.Sort == "name" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+        <a class="@(Model.Sort == "size" ? "active" : "")" href="@SortUrl("size")">Size @(Model.Sort == "size" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+        <a class="@(Model.Sort == "date" ? "active" : "")" href="@SortUrl("date")">Date @(Model.Sort == "date" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+    </div>
+    <div class="view-controls">
+        @if (hasDirectories)
+        {
+            @if (Model.Collections.Count > 0)
+            {
+                <label class="collection-picker">Collection <select id="collection-target" name="collectionId">@foreach (var collection in Model.Collections) { <option value="@collection.Id">@collection.Name</option> }</select></label>
+                <input type="hidden" name="returnPath" value="@Model.Path" />
+                <button id="add-folders-to-collection" type="submit" formaction="@Url.Action("AddFolders", "Collections")" disabled>Add selected folders <span id="selected-folder-count">0</span></button>
+            }
+            else
+            {
+                <a class="button compact" asp-controller="Collections" asp-action="Index">Create collection</a>
+            }
+        }
+        @if (hasFiles)
+        {
+            <label class="select-all"><input id="select-all" type="checkbox" /> Select all</label>
+            <button id="download-selected" class="selected-download download-button" type="submit" disabled><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download selected</span> <span id="selected-count">0</span></button>
+        }
+        <label class="columns-control">Per row <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
+        <div class="segmented"><button type="button" data-view="grid" class="active">Grid</button><button type="button" data-view="list">List</button></div>
+    </div>
+</section>
+
+@if (Model.Items.Count == 0)
+{
+    <section class="empty-state"><div class="empty-icon">◇</div><h2>This folder is empty</h2><p>Files added to this folder will appear here automatically.</p></section>
+}
+else
+{
+    <section id="gallery-items" class="gallery-grid" data-focus-path="@Model.FocusPath" data-initial-columns="@Model.InitialItemsPerRow" data-initial-view="@Model.InitialViewMode" style="--columns:@Model.DefaultItemsPerRow">
+        @if (Model.ParentPath is not null)
+        {
+            <a class="gallery-card parent-card" href="@BrowseUrl(Model.ParentPath, focus: Model.Path)"><div class="media folder-media"><span>↩</span></div><div class="item-info"><strong>Back</strong><small>Parent folder</small></div></a>
+        }
+        @foreach (var item in Model.Items)
+        {
+            if (item.IsDirectory)
+            {
+                <article class="gallery-card directory-card" data-relative-path="@item.RelativePath" data-name="@item.Name" data-size="0" data-date="@item.ModifiedUtc.UtcTicks">
+                    @if (Model.CanManage) { <label class="select-toggle folder-select-toggle" title="Select @item.Name"><input class="folder-select" type="checkbox" name="folderPaths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label> }
+                    <a class="directory-card-link" href="@BrowseUrl(item.RelativePath)">
+                    @if (item.CoverImages.Count > 0)
+                    {
+                        <div class="media folder-media folder-cover">
+                            <div class="folder-cover-shell">
+                                <span class="folder-cover-tab" aria-hidden="true"></span>
+                                <div class="folder-cover-grid cover-count-@item.CoverImages.Count">
+                                    @foreach (var cover in item.CoverImages)
+                                    {
+                                        <span class="thumbnail-slot thumbnail-loading"><img data-thumbnail-src="@ThumbnailUrl(cover.RelativePath, cover.CacheStamp)" alt="" decoding="async" /></span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="media folder-media"><span class="folder-shape"></span></div>
+                    }
+                    <div class="item-info"><strong title="@item.Name">@item.Name</strong><small>Folder</small><small class="list-date">@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small></div>
+                    </a>
+                </article>
+            }
+            else
+            {
+                <article class="gallery-card file-card" data-name="@item.Name" data-size="@item.Size" data-date="@item.ModifiedUtc.UtcTicks">
+                    <label class="select-toggle" title="Select @item.Name"><input class="file-select" type="checkbox" name="paths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label>
+                    @if (item.IsImage)
+                    {
+                        <button class="media image-button thumbnail-loading" type="button" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-download="@AssetUrl("Download", item.RelativePath)">
+                            <img data-thumbnail-src="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" alt="@item.Name" decoding="async" />
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="media file-media"><span class="file-icon">@(string.IsNullOrEmpty(item.Extension) ? "FILE" : item.Extension)</span></div>
+                    }
+                    <div class="item-info">
+                        <a class="file-name-download" title="Download @item.Name" href="@AssetUrl("Download", item.RelativePath)">@item.Name</a>
+                        <small>@FormatSize(item.Size)</small>
+                        <small class="list-date">@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+                        <a class="download-link" href="@AssetUrl("Download", item.RelativePath)">Download</a>
+                    </div>
+                </article>
+            }
+        }
+    </section>
+}
+</form>
+
+<dialog id="image-viewer" class="image-viewer">
+    <div class="viewer-bar"><strong id="viewer-name"></strong><div><a id="viewer-download" class="button compact download-button"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download</span></a><button id="viewer-close" class="icon-button" type="button" aria-label="Close">×</button></div></div>
+    <button id="viewer-previous" class="viewer-nav viewer-previous" type="button" aria-label="Previous image" title="Previous image (Left arrow)" hidden>‹</button>
+    <button id="viewer-next" class="viewer-nav viewer-next" type="button" aria-label="Next image" title="Next image (Right arrow)" hidden>›</button>
+    <div class="viewer-stage">
+        <div class="viewer-loading" aria-live="polite">
+            <span id="viewer-loading-label">Loading full image...</span>
+            <progress id="viewer-progress" max="100" value="0"></progress>
+            <span id="viewer-progress-detail">0%</span>
+        </div>
+        <img id="viewer-image" alt="" />
+    </div>
+</dialog>
+
+@functions {
+    static string FormatSize(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1) { value /= 1024; unit++; }
+        return $"{value:0.#} {units[unit]}";
+    }
+}
