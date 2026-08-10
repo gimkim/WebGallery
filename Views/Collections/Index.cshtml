@@ -215,10 +215,14 @@ else
         {
             var folderPath = group.RelativePath.Replace('\\', '/');
             <article class="folder-share-group @(group.Item is null ? "folder-share-group-unavailable" : "")">
-                <div class="folder-share-group-preview" aria-hidden="true">
+                <div class="folder-share-group-preview">
+                @if (group.Item is not null)
+                {
+                    <a class="folder-share-preview-link" asp-controller="Gallery" asp-action="Index" asp-route-path="@group.RelativePath" aria-label="Open @group.DisplayName"></a>
+                }
                 @if (group.Item?.CoverImages.Count > 0)
                 {
-                    <div class="media folder-media folder-cover">
+                    <div class="media folder-media folder-cover" aria-hidden="true">
                         <div class="folder-cover-shell">
                             <span class="folder-cover-tab" aria-hidden="true"></span>
                             <div class="folder-cover-grid cover-count-@group.Item.CoverImages.Count">
@@ -232,13 +236,25 @@ else
                 }
                 else
                 {
-                    <div class="media folder-media"><span class="folder-shape"></span></div>
+                    <div class="media folder-media" aria-hidden="true"><span class="folder-shape"></span></div>
                 }
                 </div>
                 <div class="folder-share-group-content">
                 <header class="folder-share-group-heading">
                     <span class="folder-share-group-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6.5h6l2 2h10v10H3z"/><path d="M3 6.5v-2h7l2 2h9v2"/></svg></span>
-                    <div class="folder-share-group-copy"><h3>@group.DisplayName</h3><p title="@folderPath">@(string.IsNullOrWhiteSpace(folderPath) ? "Gallery home" : folderPath)</p></div>
+                    <div class="folder-share-group-copy">
+                        <h3>
+                        @if (group.Item is not null)
+                        {
+                            <a asp-controller="Gallery" asp-action="Index" asp-route-path="@group.RelativePath">@group.DisplayName</a>
+                        }
+                        else
+                        {
+                            @group.DisplayName
+                        }
+                        </h3>
+                        <p title="@folderPath">@(string.IsNullOrWhiteSpace(folderPath) ? "Gallery home" : folderPath)</p>
+                    </div>
                     <span class="collection-count-badge">@group.ShareLinks.Count link@(group.ShareLinks.Count == 1 ? "" : "s")</span>
                     @if (group.Item is not null)
                     {
