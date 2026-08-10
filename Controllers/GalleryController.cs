@@ -93,7 +93,8 @@ public sealed class GalleryController(
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
         var normalized = files.NormalizeRelativePath(path);
-        if (!Directory.Exists(files.ResolvePath(owner, normalized))) return NotFound();
+        var resolved = files.ResolvePath(owner, normalized);
+        if (!Directory.Exists(resolved) || (!string.IsNullOrEmpty(normalized) && FileSystemService.IsIgnoredFileSystemEntry(resolved))) return NotFound();
         var normalizedSort = NormalizeSort(sort) ?? "name";
         var normalizedDirection = NormalizeDirection(dir) ?? "asc";
         var shareLink = new ShareLink
@@ -216,7 +217,7 @@ public sealed class GalleryController(
             foreach (var folder in collectionLink.Collection.Folders.OrderBy(x => x.RelativePath))
             {
                 var collectionFolderPath = files.ResolvePath(collectionLink.Owner, folder.RelativePath);
-                if (!Directory.Exists(collectionFolderPath)) continue;
+                if (!Directory.Exists(collectionFolderPath) || FileSystemService.IsIgnoredFileSystemEntry(collectionFolderPath)) continue;
                 var baseName = new DirectoryInfo(collectionFolderPath).Name;
                 var entryRoot = baseName;
                 var suffix = 2;
@@ -458,8 +459,8 @@ public sealed class GalleryController(
             default: return null;
         }
         if (owner is null) return null;
-        if (requireFile && FileSystemService.IsIgnoredFileName(Path.GetFileName(normalized))) return null;
         var resolved = files.ResolvePath(owner, normalized);
+        if (!string.IsNullOrEmpty(normalized) && FileSystemService.IsIgnoredFileSystemEntry(resolved)) return null;
         if (requireFile ? !System.IO.File.Exists(resolved) : !Directory.Exists(resolved)) return null;
         return (owner, normalized);
     }
@@ -486,13 +487,42 @@ public sealed class GalleryController(
         while (pending.Count > 0)
         {
             var directory = pending.Pop();
-            foreach (var file in Directory.EnumerateFiles(directory))
+            string[] files;
+            try
             {
-                if (!FileSystemService.IsIgnoredFileName(Path.GetFileName(file))) yield return file;
+                files = Directory.GetFiles(directory);
             }
-            foreach (var child in Directory.EnumerateDirectories(directory))
+            catch (UnauthorizedAccessException) { continue; }
+            catch (IOException) { continue; }
+            catch (ArgumentException) { continue; }
+            catch (NotSupportedException) { continue; }
+
+            foreach (var file in files)
             {
-                if ((System.IO.File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) pending.Push(child);
+                if (!FileSystemService.IsIgnoredFileSystemEntry(file)) yield return file;
+            }
+
+            string[] children;
+            try
+            {
+                children = Directory.GetDirectories(directory);
+            }
+            catch (UnauthorizedAccessException) { continue; }
+            catch (IOException) { continue; }
+            catch (ArgumentException) { continue; }
+            catch (NotSupportedException) { continue; }
+
+            foreach (var child in children)
+            {
+                try
+                {
+                    if ((System.IO.File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0 &&
+                        !FileSystemService.IsIgnoredFileSystemEntry(child)) pending.Push(child);
+                }
+                catch (UnauthorizedAccessException) { }
+                catch (IOException) { }
+                catch (ArgumentException) { }
+                catch (NotSupportedException) { }
             }
         }
     }

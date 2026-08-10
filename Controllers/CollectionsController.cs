@@ -72,7 +72,9 @@ public sealed class CollectionsController(
         foreach (var path in folderPaths.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var normalized = files.NormalizeRelativePath(path).Replace(Path.DirectorySeparatorChar, '/');
-            if (string.IsNullOrEmpty(normalized) || !Directory.Exists(files.ResolvePath(owner, normalized))) continue;
+            if (string.IsNullOrEmpty(normalized)) continue;
+            var resolved = files.ResolvePath(owner, normalized);
+            if (!Directory.Exists(resolved) || FileSystemService.IsIgnoredFileSystemEntry(resolved)) continue;
             candidates.Add(normalized);
         }
 

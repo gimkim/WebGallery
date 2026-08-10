@@ -11,7 +11,10 @@ public sealed class FileSystemService
     };
     private static readonly HashSet<string> IgnoredFileNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Thumbs.db"
+        "Thumbs.db",
+        // Keep the common singular spelling hidden as well; Windows normally
+        // creates Thumbs.db, but copied metadata can use either name.
+        "Thumb.db"
     };
 
     public string NormalizeRelativePath(string? relativePath)
@@ -41,10 +44,11 @@ public sealed class FileSystemService
     {
         var normalized = NormalizeRelativePath(relativePath);
         var folder = ResolvePath(owner, normalized);
-        if (!Directory.Exists(folder)) throw new DirectoryNotFoundException();
+        if (!Directory.Exists(folder) || (!string.IsNullOrEmpty(normalized) && IsIgnoredFileSystemEntry(folder)))
+            throw new DirectoryNotFoundException();
 
         var items = Directory.EnumerateFileSystemEntries(folder)
-            .Where(path => Directory.Exists(path) || !IsIgnoredFileName(Path.GetFileName(path)))
+            .Where(path => !IsIgnoredFileSystemEntry(path))
             .Select(path =>
             {
                 var isDirectory = Directory.Exists(path);
@@ -76,11 +80,28 @@ public sealed class FileSystemService
     public static bool IsImage(string extension) => ImageExtensions.Contains(extension);
     public static bool IsIgnoredFileName(string fileName) => IgnoredFileNames.Contains(fileName);
 
+    public static bool IsHiddenOrSystem(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & (FileAttributes.Hidden | FileAttributes.System)) != 0;
+        }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
+        catch (UnauthorizedAccessException) { return true; }
+        catch (IOException) { return true; }
+        catch (ArgumentException) { return true; }
+        catch (NotSupportedException) { return true; }
+    }
+
+    public static bool IsIgnoredFileSystemEntry(string path) =>
+        IsHiddenOrSystem(path) || IsIgnoredFileName(Path.GetFileName(path));
+
     public GalleryItemViewModel? GetDirectoryItem(ApplicationUser owner, string relativePath)
     {
         var normalized = NormalizeRelativePath(relativePath);
         var fullPath = ResolvePath(owner, normalized);
-        if (!Directory.Exists(fullPath)) return null;
+        if (!Directory.Exists(fullPath) || IsIgnoredFileSystemEntry(fullPath)) return null;
         var info = new DirectoryInfo(fullPath);
         return new GalleryItemViewModel(
             info.Name,
@@ -98,7 +119,7 @@ public sealed class FileSystemService
         try
         {
             return Directory.EnumerateFiles(folderPath)
-                .Where(path => IsImage(Path.GetExtension(path)))
+                .Where(path => IsImage(Path.GetExtension(path)) && !IsIgnoredFileSystemEntry(path))
                 .Take(4)
                 .Select(path =>
                 {
