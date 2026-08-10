@@ -18,10 +18,12 @@ public sealed class ShareAuditService(GalleryDbContext db, IHttpContextAccessor 
         CancellationToken cancellationToken = default)
     {
         var clientAddress = httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var occurredAtUtc = DateTimeOffset.UtcNow;
         db.ShareAuditEvents.Add(new ShareAuditEvent
         {
             ShareLinkId = link.Id,
-            OccurredAtUtc = DateTimeOffset.UtcNow,
+            OccurredAtUtc = occurredAtUtc,
+            OccurredAtUnixSeconds = occurredAtUtc.ToUnixTimeSeconds(),
             EventType = eventType,
             TargetPath = Truncate((targetPath ?? "").Replace('\\', '/'), 2048),
             Details = detailPaths is null ? "" : SerializeDetails(detailPaths),

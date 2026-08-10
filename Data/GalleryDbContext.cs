@@ -29,6 +29,9 @@ public sealed class GalleryDbContext(DbContextOptions<GalleryDbContext> options)
         builder.Entity<GalleryCollectionFolder>().HasIndex(x => new { x.CollectionId, x.RelativePath }).IsUnique();
         builder.Entity<ShareAuditEvent>().HasIndex(x => new { x.ShareLinkId, x.OccurredAtUtc });
         builder.Entity<ShareAuditEvent>().HasIndex(x => new { x.ShareLinkId, x.EventType });
+        builder.Entity<ShareAuditEvent>().HasIndex(x => x.OccurredAtUnixSeconds);
+        builder.Entity<ShareAuditEvent>().HasIndex(x => new { x.EventType, x.OccurredAtUnixSeconds });
+        builder.Entity<ShareAuditEvent>().HasIndex(x => new { x.ClientIp, x.OccurredAtUnixSeconds });
         builder.Entity<AppSetting>().HasKey(x => x.Key);
         builder.Entity<FolderRule>().Property(x => x.RelativePath).UseCollation("NOCASE");
         builder.Entity<GalleryCollection>().Property(x => x.Name).UseCollation("NOCASE");

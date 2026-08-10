@@ -135,3 +135,43 @@ public sealed class AdminIndexViewModel
     public string Theme { get; init; } = "retro";
     public int ThumbnailConcurrency { get; init; } = ThumbnailQueueSettings.DefaultConcurrency;
 }
+
+public sealed class AdminLogOwnerOptionViewModel
+{
+    public required string Id { get; init; }
+    public required string UserName { get; init; }
+}
+
+public sealed class AdminLogRowViewModel
+{
+    public long Id { get; init; }
+    public DateTimeOffset OccurredAtUtc { get; init; }
+    public required string EventType { get; init; }
+    public required string OwnerUserName { get; init; }
+    public required string ShareType { get; init; }
+    public required string ShareLabel { get; init; }
+    public required string TargetPath { get; init; }
+    public required string Details { get; init; }
+    public int ItemCount { get; init; }
+    public required string ClientIp { get; init; }
+    public required string VisitorHash { get; init; }
+}
+
+public sealed class AdminLogsViewModel
+{
+    public required IReadOnlyList<AdminLogRowViewModel> Events { get; init; }
+    public required IReadOnlyList<AdminLogOwnerOptionViewModel> Owners { get; init; }
+    public string EventType { get; init; } = "";
+    public string OwnerId { get; init; } = "";
+    public string ShareType { get; init; } = "";
+    public string ClientIp { get; init; } = "";
+    public string Search { get; init; } = "";
+    public string FromDate { get; init; } = "";
+    public string ToDate { get; init; } = "";
+    public int TotalEvents { get; init; }
+    public int AccessCount { get; init; }
+    public int ViewCount { get; init; }
+    public int DownloadCount { get; init; }
+    public int Page { get; init; }
+    public int TotalPages { get; init; }
+}

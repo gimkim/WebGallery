@@ -18,6 +18,7 @@ public sealed class ShareAuditEvent
     public int ShareLinkId { get; set; }
     public ShareLink? ShareLink { get; set; }
     public DateTimeOffset OccurredAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public long OccurredAtUnixSeconds { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     public required string EventType { get; set; }
     public string TargetPath { get; set; } = "";
     public string Details { get; set; } = "";

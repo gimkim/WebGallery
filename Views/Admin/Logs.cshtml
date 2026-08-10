@@ -1,0 +1,113 @@
+@model AdminLogsViewModel
+@using System.Text.Json
+@{
+    ViewData["Title"] = "Management logs";
+    string EventLabel(string eventType) => eventType switch
+    {
+        ShareAuditEventTypes.Access => "Accessed share",
+        ShareAuditEventTypes.View => "Viewed image",
+        ShareAuditEventTypes.DownloadFile => "Downloaded file",
+        ShareAuditEventTypes.DownloadFolder => "Downloaded folder",
+        ShareAuditEventTypes.DownloadCollection => "Downloaded collection",
+        ShareAuditEventTypes.DownloadSelection => "Downloaded selection",
+        _ => eventType
+    };
+    string Details(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "";
+        try { return string.Join(", ", JsonSerializer.Deserialize<string[]>(json) ?? []); }
+        catch (JsonException) { return json; }
+    }
+}
+
+<section class="gallery-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>Logs</h1><p class="muted">Review and filter activity recorded across every folder and collection share link.</p></div></section>
+<nav class="management-tabs" aria-label="Management sections"><a asp-action="Index">System and users</a><a class="active" asp-action="Logs">Logs</a></nav>
+
+<section class="panel management-log-filter-panel">
+    <form method="get" asp-action="Logs" class="management-log-filters">
+        <label>From date<input type="date" name="from" value="@Model.FromDate" /></label>
+        <label>To date<input type="date" name="to" value="@Model.ToDate" /></label>
+        <label>Event
+            <select name="eventType">
+                <option value="" selected="@(Model.EventType == "")">All events</option>
+                <option value="@ShareAuditEventTypes.Access" selected="@(Model.EventType == ShareAuditEventTypes.Access)">Accessed share</option>
+                <option value="@ShareAuditEventTypes.View" selected="@(Model.EventType == ShareAuditEventTypes.View)">Viewed image</option>
+                <option value="@ShareAuditEventTypes.DownloadFile" selected="@(Model.EventType == ShareAuditEventTypes.DownloadFile)">Downloaded file</option>
+                <option value="@ShareAuditEventTypes.DownloadFolder" selected="@(Model.EventType == ShareAuditEventTypes.DownloadFolder)">Downloaded folder</option>
+                <option value="@ShareAuditEventTypes.DownloadCollection" selected="@(Model.EventType == ShareAuditEventTypes.DownloadCollection)">Downloaded collection</option>
+                <option value="@ShareAuditEventTypes.DownloadSelection" selected="@(Model.EventType == ShareAuditEventTypes.DownloadSelection)">Downloaded selection</option>
+            </select>
+        </label>
+        <label>Owner
+            <select name="ownerId">
+                <option value="" selected="@(Model.OwnerId == "")">All users</option>
+                @foreach (var owner in Model.Owners)
+                {
+                    <option value="@owner.Id" selected="@(Model.OwnerId == owner.Id)">@owner.UserName</option>
+                }
+            </select>
+        </label>
+        <label>Share type
+            <select name="shareType">
+                <option value="" selected="@(Model.ShareType == "")">All shares</option>
+                <option value="folder" selected="@(Model.ShareType == "folder")">Folder</option>
+                <option value="collection" selected="@(Model.ShareType == "collection")">Collection</option>
+            </select>
+        </label>
+        <label>IP address<input type="search" name="clientIp" value="@Model.ClientIp" placeholder="Exact or partial IP" /></label>
+        <label class="management-log-search">Target or visitor<input type="search" name="search" value="@Model.Search" placeholder="Path, collection, user, visitor, or downloaded item" /></label>
+        <div class="management-log-filter-actions"><button class="primary" type="submit">Apply filters</button><a class="button" asp-action="Logs">Reset</a></div>
+    </form>
+</section>
+
+<section class="share-activity-summary management-log-summary" aria-label="Filtered log summary">
+    <div class="panel"><strong>@Model.TotalEvents</strong><span>Filtered events</span></div>
+    <div class="panel"><strong>@Model.AccessCount</strong><span>Accesses</span></div>
+    <div class="panel"><strong>@Model.ViewCount</strong><span>Image views</span></div>
+    <div class="panel"><strong>@Model.DownloadCount</strong><span>Downloads</span></div>
+</section>
+
+<section class="panel share-activity-panel management-log-panel">
+    <header><div><div class="eyebrow">AUDIT LOG</div><h2>Share activity</h2><p class="muted">Newest first &bull; Page @Model.Page of @Model.TotalPages &bull; Up to 100 events per page</p></div></header>
+    @if (Model.Events.Count == 0)
+    {
+        <div class="empty-state compact-empty"><h2>No matching events</h2><p>Adjust the filters or wait for recipients to use a share link.</p><a class="button compact" asp-action="Logs">Clear filters</a></div>
+    }
+    else
+    {
+        <div class="share-activity-table-wrap">
+            <table class="share-activity-table management-log-table">
+                <thead><tr><th>Time</th><th>Event</th><th>Owner / share</th><th>Target</th><th>Items</th><th>IP address</th><th>Visitor</th></tr></thead>
+                <tbody>
+                @foreach (var item in Model.Events)
+                {
+                    var details = Details(item.Details);
+                    <tr>
+                        <td><time datetime="@item.OccurredAtUtc.ToString("O")">@item.OccurredAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</time></td>
+                        <td>@EventLabel(item.EventType)</td>
+                        <td><strong>@item.OwnerUserName</strong><small>@item.ShareType: @item.ShareLabel</small></td>
+                        <td title="@details"><span class="activity-target">@(string.IsNullOrEmpty(item.TargetPath) ? item.ShareLabel : item.TargetPath)</span>@if (!string.IsNullOrEmpty(details)) { <small>@details</small> }</td>
+                        <td>@item.ItemCount</td>
+                        <td><code>@item.ClientIp</code></td>
+                        <td><code>@item.VisitorHash</code></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        @if (Model.TotalPages > 1)
+        {
+            <nav class="activity-pagination" aria-label="Log pages">
+                @if (Model.Page > 1)
+                {
+                    <a class="button compact" asp-action="Logs" asp-route-page="@(Model.Page - 1)" asp-route-eventType="@Model.EventType" asp-route-ownerId="@Model.OwnerId" asp-route-shareType="@Model.ShareType" asp-route-clientIp="@Model.ClientIp" asp-route-search="@Model.Search" asp-route-from="@Model.FromDate" asp-route-to="@Model.ToDate">Previous</a>
+                }
+                <span>Page @Model.Page of @Model.TotalPages</span>
+                @if (Model.Page < Model.TotalPages)
+                {
+                    <a class="button compact" asp-action="Logs" asp-route-page="@(Model.Page + 1)" asp-route-eventType="@Model.EventType" asp-route-ownerId="@Model.OwnerId" asp-route-shareType="@Model.ShareType" asp-route-clientIp="@Model.ClientIp" asp-route-search="@Model.Search" asp-route-from="@Model.FromDate" asp-route-to="@Model.ToDate">Next</a>
+                }
+            </nav>
+        }
+    }
+</section>

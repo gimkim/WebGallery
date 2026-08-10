@@ -1,6 +1,7 @@
 @model AdminIndexViewModel
-@{ ViewData["Title"] = "System settings"; }
-<section class="gallery-heading"><div><div class="eyebrow">ADMIN</div><h1>System settings</h1><p class="muted">Manage the site title, visual theme, user accounts, and each user's root folder.</p></div></section>
+@{ ViewData["Title"] = "Management"; }
+<section class="gallery-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>System and users</h1><p class="muted">Manage the site title, visual theme, user accounts, and each user's root folder.</p></div></section>
+<nav class="management-tabs" aria-label="Management sections"><a class="active" asp-action="Index">System and users</a><a asp-action="Logs">Logs</a></nav>
 
 <section class="panel admin-section">
     <h2>System</h2>

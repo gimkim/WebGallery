@@ -1021,6 +1021,70 @@ img[data-thumbnail-src].thumbnail-loaded {
   padding: 22px;
   margin-bottom: 16px;
 }
+.management-tabs {
+  display: flex;
+  gap: 8px;
+  margin: -6px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.management-tabs a {
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  color: var(--muted);
+  font-weight: 800;
+  text-decoration: none;
+}
+.management-tabs a:hover,
+.management-tabs a:focus-visible {
+  background: rgba(24, 231, 255, 0.08);
+  color: var(--accent);
+}
+.management-tabs a.active {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--accent);
+}
+.management-log-filter-panel {
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.management-log-filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.management-log-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.management-log-filters input,
+.management-log-filters select {
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+.management-log-search {
+  grid-column: span 3;
+}
+.management-log-filter-actions {
+  display: flex;
+  gap: 8px;
+  grid-column: span 3;
+}
+.management-log-table {
+  min-width: 1220px;
+}
+.management-log-table td:nth-child(3) strong {
+  display: block;
+}
 .admin-section h2 {
   margin-top: 0;
 }
@@ -1820,6 +1884,13 @@ select,
   .collection-section-empty > :last-child {
     grid-column: 1 / -1;
     justify-self: start;
+  }
+  .management-log-filters {
+    grid-template-columns: 1fr;
+  }
+  .management-log-search,
+  .management-log-filter-actions {
+    grid-column: auto;
   }
   .share-activity-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));

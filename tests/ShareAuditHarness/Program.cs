@@ -35,9 +35,33 @@ await audit.RecordAsync(link, ShareAuditEventTypes.DownloadSelection, "photos", 
 var events = await db.ShareAuditEvents.OrderBy(item => item.Id).ToListAsync();
 Assert(events.Count == 3, "Expected three audit rows.");
 Assert(events.All(item => item.ClientIp == "203.0.113.42"), "The real direct IP was not stored.");
+Assert(events.All(item => item.OccurredAtUnixSeconds > 0), "Every audit event must store an indexed Unix timestamp.");
+await db.Database.ExecuteSqlRawAsync("UPDATE ShareAuditEvents SET OccurredAtUnixSeconds = 0 WHERE Id = {0}", events[0].Id);
+await db.Database.ExecuteSqlRawAsync("UPDATE ShareAuditEvents SET OccurredAtUnixSeconds = CAST(strftime('%s', OccurredAtUtc) AS INTEGER) WHERE OccurredAtUnixSeconds = 0");
+Assert(await db.ShareAuditEvents.AsNoTracking().AllAsync(item => item.OccurredAtUnixSeconds > 0),
+    "Existing DateTimeOffset values could not be backfilled to Unix seconds.");
 Assert(events.Select(item => item.VisitorHash).Distinct().Count() == 1, "Visitor hash must be stable per link/IP.");
 Assert(events[2].ItemCount == 2 && events[2].Details.Contains("image-2.jpg", StringComparison.Ordinal),
     "Selection details were not retained.");
+
+var fromUnix = DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds();
+var filteredQuery = db.ShareAuditEvents.AsNoTracking()
+    .Where(item => item.OccurredAtUnixSeconds >= fromUnix)
+    .Where(item => item.ShareLink!.OwnerUserId == owner.Id)
+    .Where(item => EF.Functions.Like(item.ClientIp, "%203.0.113%", "\\"))
+    .Where(item => EF.Functions.Like(item.TargetPath, "%image%", "\\")
+        || EF.Functions.Like(item.Details, "%image%", "\\")
+        || EF.Functions.Like(item.ShareLink!.Owner!.UserName!, "%owner%", "\\"));
+var filteredCounts = await filteredQuery.GroupBy(item => item.EventType)
+    .Select(group => new { group.Key, Count = group.Count() })
+    .ToListAsync();
+var filteredEvents = await filteredQuery
+    .Include(item => item.ShareLink)!.ThenInclude(item => item!.Owner)
+    .Include(item => item.ShareLink)!.ThenInclude(item => item!.Collection)
+    .OrderByDescending(item => item.Id)
+    .ToListAsync();
+Assert(filteredCounts.Sum(item => item.Count) == 3 && filteredEvents.Count == 3,
+    "Management log filters or navigation loading did not execute correctly on SQLite.");
 
 var summary = (await audit.GetSummariesAsync([link.Id]))[link.Id];
 Assert(summary.AccessCount == 1, "Access summary is incorrect.");

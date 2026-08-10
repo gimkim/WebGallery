@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -39,6 +40,108 @@ public sealed class AdminController(
             ? ThumbnailQueueSettings.Clamp(parsedConcurrency)
             : thumbnailQueueSettings.MaxConcurrency;
         return View(new AdminIndexViewModel { Users = rows, AppTitle = title, Theme = theme, ThumbnailConcurrency = concurrency });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Logs(
+        string? eventType,
+        string? ownerId,
+        string? shareType,
+        string? clientIp,
+        string? search,
+        string? from,
+        string? to,
+        int page = 1)
+    {
+        const int pageSize = 100;
+        var normalizedEventType = NormalizeEventType(eventType);
+        var normalizedShareType = NormalizeShareType(shareType);
+        var normalizedOwnerId = ownerId?.Trim() ?? "";
+        var normalizedClientIp = clientIp?.Trim() ?? "";
+        var normalizedSearch = search?.Trim() ?? "";
+        var fromUnix = ParseLocalDateBoundary(from, false, out var normalizedFrom);
+        var toUnix = ParseLocalDateBoundary(to, true, out var normalizedTo);
+
+        IQueryable<ShareAuditEvent> query = db.ShareAuditEvents.AsNoTracking();
+        if (!string.IsNullOrEmpty(normalizedEventType))
+            query = query.Where(item => item.EventType == normalizedEventType);
+        if (!string.IsNullOrEmpty(normalizedOwnerId))
+            query = query.Where(item => item.ShareLink!.OwnerUserId == normalizedOwnerId);
+        if (normalizedShareType == "collection")
+            query = query.Where(item => item.ShareLink!.CollectionId != null);
+        else if (normalizedShareType == "folder")
+            query = query.Where(item => item.ShareLink!.CollectionId == null);
+        if (!string.IsNullOrEmpty(normalizedClientIp))
+        {
+            var pattern = $"%{EscapeLikePattern(normalizedClientIp)}%";
+            query = query.Where(item => EF.Functions.Like(item.ClientIp, pattern, "\\"));
+        }
+        if (!string.IsNullOrEmpty(normalizedSearch))
+        {
+            var pattern = $"%{EscapeLikePattern(normalizedSearch)}%";
+            query = query.Where(item =>
+                EF.Functions.Like(item.TargetPath, pattern, "\\")
+                || EF.Functions.Like(item.Details, pattern, "\\")
+                || EF.Functions.Like(item.VisitorHash, pattern, "\\")
+                || EF.Functions.Like(item.ShareLink!.Owner!.UserName!, pattern, "\\")
+                || (item.ShareLink.Collection != null && EF.Functions.Like(item.ShareLink.Collection.Name, pattern, "\\")));
+        }
+        if (fromUnix.HasValue)
+            query = query.Where(item => item.OccurredAtUnixSeconds >= fromUnix.Value);
+        if (toUnix.HasValue)
+            query = query.Where(item => item.OccurredAtUnixSeconds < toUnix.Value);
+
+        var eventCounts = await query
+            .GroupBy(item => item.EventType)
+            .Select(group => new { EventType = group.Key, Count = group.Count() })
+            .ToListAsync();
+        var total = eventCounts.Sum(item => item.Count);
+        var totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)pageSize));
+        page = Math.Min(Math.Max(1, page), totalPages);
+        var events = await query
+            .Include(item => item.ShareLink)!.ThenInclude(link => link!.Owner)
+            .Include(item => item.ShareLink)!.ThenInclude(link => link!.Collection)
+            .OrderByDescending(item => item.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+        var owners = await userManager.Users.AsNoTracking()
+            .OrderBy(user => user.UserName)
+            .Select(user => new AdminLogOwnerOptionViewModel { Id = user.Id, UserName = user.UserName ?? "" })
+            .ToListAsync();
+
+        return View(new AdminLogsViewModel
+        {
+            Events = events.Select(item => new AdminLogRowViewModel
+            {
+                Id = item.Id,
+                OccurredAtUtc = item.OccurredAtUtc,
+                EventType = item.EventType,
+                OwnerUserName = item.ShareLink?.Owner?.UserName ?? "Unknown user",
+                ShareType = item.ShareLink?.Collection is null ? "Folder" : "Collection",
+                ShareLabel = item.ShareLink?.Collection?.Name
+                    ?? (string.IsNullOrWhiteSpace(item.ShareLink?.RelativePath) ? "Home" : item.ShareLink.RelativePath.Replace('\\', '/')),
+                TargetPath = item.TargetPath,
+                Details = item.Details,
+                ItemCount = item.ItemCount,
+                ClientIp = item.ClientIp,
+                VisitorHash = item.VisitorHash
+            }).ToList(),
+            Owners = owners,
+            EventType = normalizedEventType,
+            OwnerId = normalizedOwnerId,
+            ShareType = normalizedShareType,
+            ClientIp = normalizedClientIp,
+            Search = normalizedSearch,
+            FromDate = normalizedFrom,
+            ToDate = normalizedTo,
+            TotalEvents = total,
+            AccessCount = eventCounts.Where(item => item.EventType == ShareAuditEventTypes.Access).Sum(item => item.Count),
+            ViewCount = eventCounts.Where(item => item.EventType == ShareAuditEventTypes.View).Sum(item => item.Count),
+            DownloadCount = eventCounts.Where(item => ShareAuditEventTypes.IsDownload(item.EventType)).Sum(item => item.Count),
+            Page = page,
+            TotalPages = totalPages
+        });
     }
 
     [HttpPost]
@@ -142,6 +245,41 @@ public sealed class AdminController(
         "modern" => "modern",
         _ => null
     };
+
+    private static string NormalizeEventType(string? value)
+    {
+        var normalized = value?.Trim() ?? "";
+        return normalized is ShareAuditEventTypes.Access
+            or ShareAuditEventTypes.View
+            or ShareAuditEventTypes.DownloadFile
+            or ShareAuditEventTypes.DownloadFolder
+            or ShareAuditEventTypes.DownloadCollection
+            or ShareAuditEventTypes.DownloadSelection
+            ? normalized
+            : "";
+    }
+
+    private static string NormalizeShareType(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "folder" => "folder",
+        "collection" => "collection",
+        _ => ""
+    };
+
+    private static long? ParseLocalDateBoundary(string? value, bool endExclusive, out string normalized)
+    {
+        normalized = "";
+        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            return null;
+        normalized = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var localDateTime = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified).AddDays(endExclusive ? 1 : 0);
+        return new DateTimeOffset(localDateTime, TimeZoneInfo.Local.GetUtcOffset(localDateTime)).ToUnixTimeSeconds();
+    }
+
+    private static string EscapeLikePattern(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("%", "\\%", StringComparison.Ordinal)
+        .Replace("_", "\\_", StringComparison.Ordinal);
 
     private static string NormalizeRoot(string path)
     {

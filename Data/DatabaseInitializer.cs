@@ -196,6 +196,7 @@ public static class DatabaseInitializer
                     Id INTEGER NOT NULL CONSTRAINT PK_ShareAuditEvents PRIMARY KEY AUTOINCREMENT,
                     ShareLinkId INTEGER NOT NULL,
                     OccurredAtUtc TEXT NOT NULL,
+                    OccurredAtUnixSeconds INTEGER NOT NULL DEFAULT 0,
                     EventType TEXT NOT NULL,
                     TargetPath TEXT NOT NULL DEFAULT '',
                     Details TEXT NOT NULL DEFAULT '',
@@ -222,6 +223,24 @@ public static class DatabaseInitializer
                 addColumnCommand.CommandText = "ALTER TABLE ShareAuditEvents ADD COLUMN ClientIp TEXT NOT NULL DEFAULT 'unknown'";
                 await addColumnCommand.ExecuteNonQueryAsync();
             }
+            if (!columns.Contains("OccurredAtUnixSeconds"))
+            {
+                await using var addColumnCommand = connection.CreateCommand();
+                addColumnCommand.CommandText = "ALTER TABLE ShareAuditEvents ADD COLUMN OccurredAtUnixSeconds INTEGER NOT NULL DEFAULT 0";
+                await addColumnCommand.ExecuteNonQueryAsync();
+            }
+
+            await using var backfillCommand = connection.CreateCommand();
+            backfillCommand.CommandText = "UPDATE ShareAuditEvents SET OccurredAtUnixSeconds = CAST(strftime('%s', OccurredAtUtc) AS INTEGER) WHERE OccurredAtUnixSeconds = 0";
+            await backfillCommand.ExecuteNonQueryAsync();
+
+            await using var indexCommand = connection.CreateCommand();
+            indexCommand.CommandText = """
+                CREATE INDEX IF NOT EXISTS IX_ShareAuditEvents_OccurredAtUnixSeconds ON ShareAuditEvents (OccurredAtUnixSeconds);
+                CREATE INDEX IF NOT EXISTS IX_ShareAuditEvents_EventType_OccurredAtUnixSeconds ON ShareAuditEvents (EventType, OccurredAtUnixSeconds);
+                CREATE INDEX IF NOT EXISTS IX_ShareAuditEvents_ClientIp_OccurredAtUnixSeconds ON ShareAuditEvents (ClientIp, OccurredAtUnixSeconds);
+                """;
+            await indexCommand.ExecuteNonQueryAsync();
         }
         finally
         {
