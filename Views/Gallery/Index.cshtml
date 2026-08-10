@@ -10,6 +10,7 @@
     string AssetUrl(string action, string path) => Url.Action(action, new { mode = Model.BrowseMode, userName = Model.OwnerUserName, token = Model.ShareToken, path })!;
     string ThumbnailUrl(string path, string cacheStamp) => $"{AssetUrl("Thumbnail", path)}&v={WebGallery.Services.ThumbnailService.CacheVersion}&stamp={cacheStamp}";
     string ViewFileUrl(string path, string cacheStamp) => $"{AssetUrl("ViewFile", path)}&stamp={cacheStamp}";
+    string? AuditViewUrl(string path) => Model.BrowseMode == "share" ? Url.Action("AuditView", new { token = Model.ShareToken, path }) : null;
     string SortUrl(string column)
     {
         var next = Model.Sort == column && Model.Direction == "asc" ? "desc" : "asc";
@@ -71,12 +72,20 @@
         </div>
         <div class="access-help">
             <p>Every folder is private. Anyone with a share link can access only this folder and its subfolders.</p>
-            @foreach (var link in Model.ShareLinks)
+            @foreach (var share in Model.ShareLinks)
             {
+                var link = share.Link;
                 var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
-                <div class="share-row @(link.Id == createdShareLinkId ? "share-row-created" : "")">
-                    <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
-                    <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><input type="hidden" name="path" value="@Model.Path" /><button class="danger-text" type="submit">Revoke</button></form>
+                <div class="share-entry @(link.Id == createdShareLinkId ? "share-row-created" : "")">
+                    <div class="share-row">
+                        <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
+                        <a class="button compact" asp-controller="Collections" asp-action="ShareActivity" asp-route-id="@link.Id">Activity</a>
+                        <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><input type="hidden" name="path" value="@Model.Path" /><button class="danger-text" type="submit">Revoke</button></form>
+                    </div>
+                    <div class="share-metrics" aria-label="Share activity summary">
+                        <span><strong>@share.AccessCount</strong> accesses</span><span><strong>@share.ViewCount</strong> views</span><span><strong>@share.DownloadCount</strong> downloads</span><span><strong>@share.UniqueVisitorCount</strong> visitors</span>
+                        <span class="share-last-activity">@(share.LastActivityUtc is null ? "No activity yet" : $"Last {share.LastActivityUtc.Value.ToLocalTime():dd/MM/yyyy HH:mm}")</span>
+                    </div>
                 </div>
             }
             <form asp-action="CreateShare" method="post" data-create-share>
@@ -159,7 +168,7 @@ else
                     <label class="select-toggle" title="Select @item.Name"><input class="file-select" type="checkbox" name="paths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label>
                     @if (item.IsImage)
                     {
-                        <button class="media image-button thumbnail-loading" type="button" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-download="@AssetUrl("Download", item.RelativePath)">
+                        <button class="media image-button thumbnail-loading" type="button" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-download="@AssetUrl("Download", item.RelativePath)" data-share-audit="@AuditViewUrl(item.RelativePath)">
                             <img data-thumbnail-src="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" alt="@item.Name" decoding="async" />
                         </button>
                     }

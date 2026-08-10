@@ -1,0 +1,74 @@
+@model ShareActivityViewModel
+@using System.Text.Json
+@{
+    ViewData["Title"] = "Share activity";
+    string EventLabel(string eventType) => eventType switch
+    {
+        ShareAuditEventTypes.Access => "Accessed share",
+        ShareAuditEventTypes.View => "Viewed image",
+        ShareAuditEventTypes.DownloadFile => "Downloaded file",
+        ShareAuditEventTypes.DownloadFolder => "Downloaded folder",
+        ShareAuditEventTypes.DownloadCollection => "Downloaded collection",
+        ShareAuditEventTypes.DownloadSelection => "Downloaded selection",
+        _ => eventType
+    };
+    string Details(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "";
+        try { return string.Join(", ", JsonSerializer.Deserialize<string[]>(json) ?? []); }
+        catch (JsonException) { return json; }
+    }
+}
+
+<section class="collection-heading">
+    <div><div class="eyebrow">SHARE ACTIVITY</div><h1>@Model.ShareLabel</h1><p class="muted">Created @Model.Link.CreatedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm") · IP addresses are recorded from the direct connection together with a per-link visitor identifier.</p></div>
+    <a class="button" asp-action="Index">Back to Collections</a>
+</section>
+
+<section class="share-activity-summary">
+    <div class="panel"><strong>@Model.Summary.AccessCount</strong><span>Accesses</span></div>
+    <div class="panel"><strong>@Model.Summary.ViewCount</strong><span>Image views</span></div>
+    <div class="panel"><strong>@Model.Summary.DownloadCount</strong><span>Downloads</span></div>
+    <div class="panel"><strong>@Model.Summary.UniqueVisitorCount</strong><span>Visitors</span></div>
+</section>
+
+<section class="panel share-activity-panel">
+    <header>
+        <div><div class="eyebrow">EVENT LOG</div><h2>Recent activity</h2><p class="muted">Newest first · Page @Model.Page of @Model.TotalPages</p></div>
+        <form asp-action="ClearShareActivity" method="post" data-confirm="Clear all activity for this share link? This cannot be undone."><input type="hidden" name="id" value="@Model.Link.Id" /><button class="danger-text" type="submit" disabled="@(Model.Events.Count == 0)">Clear activity</button></form>
+    </header>
+    @if (Model.Events.Count == 0)
+    {
+        <div class="empty-state compact-empty"><h2>No activity yet</h2><p>Events will appear after someone uses this share link.</p></div>
+    }
+    else
+    {
+        <div class="share-activity-table-wrap">
+            <table class="share-activity-table">
+                <thead><tr><th>Time</th><th>Event</th><th>Target</th><th>Items</th><th>IP address</th><th>Visitor</th></tr></thead>
+                <tbody>
+                @foreach (var item in Model.Events)
+                {
+                    var details = Details(item.Details);
+                    <tr>
+                        <td><time datetime="@item.OccurredAtUtc.ToString("O")">@item.OccurredAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</time></td>
+                        <td>@EventLabel(item.EventType)</td>
+                        <td title="@details"><span class="activity-target">@(string.IsNullOrEmpty(item.TargetPath) ? Model.ShareLabel : item.TargetPath)</span>@if (!string.IsNullOrEmpty(details)) { <small>@details</small> }</td>
+                        <td>@item.ItemCount</td>
+                        <td><code>@item.ClientIp</code></td>
+                        <td><code>@item.VisitorHash</code></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        @if (Model.TotalPages > 1)
+        {
+            <nav class="activity-pagination" aria-label="Activity pages">
+                @if (Model.Page > 1) { <a class="button compact" asp-route-id="@Model.Link.Id" asp-route-page="@(Model.Page - 1)">Previous</a> }
+                <span>Page @Model.Page of @Model.TotalPages</span>
+                @if (Model.Page < Model.TotalPages) { <a class="button compact" asp-route-id="@Model.Link.Id" asp-route-page="@(Model.Page + 1)">Next</a> }
+            </nav>
+        }
+    }
+</section>

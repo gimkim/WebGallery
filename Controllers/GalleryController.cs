@@ -21,6 +21,7 @@ public sealed class GalleryController(
     GalleryDbContext db,
     FileSystemService files,
     ThumbnailService thumbnails,
+    ShareAuditService shareAudit,
     InvalidShareTokenLimiter invalidShareTokenLimiter,
     IOptions<GalleryOptions> options) : Controller
 {
@@ -52,19 +53,30 @@ public sealed class GalleryController(
         if (link.Collection is not null)
         {
             if (string.IsNullOrWhiteSpace(path))
-                return await RenderCollectionRootAsync(link, order.Sort, order.Direction,
+            {
+                var rootResult = await RenderCollectionRootAsync(link, order.Sort, order.Direction,
                     NormalizeItemsPerRow(itemsPerRow), NormalizeViewMode(view));
+                if (rootResult is ViewResult)
+                    await shareAudit.RecordAsync(link, ShareAuditEventTypes.Access, "");
+                return rootResult;
+            }
             var requested = files.NormalizeRelativePath(path).Replace(Path.DirectorySeparatorChar, '/');
             var collectionRoot = FindCollectionRoot(link.Collection, requested);
             if (collectionRoot is null) return NotFound();
-            return await RenderAsync(link.Owner, requested, order.Sort, order.Direction, "share", token,
+            var collectionPathResult = await RenderAsync(link.Owner, requested, order.Sort, order.Direction, "share", token,
                 collectionRoot.RelativePath, canManage: false, focus, NormalizeItemsPerRow(itemsPerRow),
                 NormalizeViewMode(view), link.Collection);
+            if (collectionPathResult is ViewResult)
+                await shareAudit.RecordAsync(link, ShareAuditEventTypes.Access, requested);
+            return collectionPathResult;
         }
         var normalized = string.IsNullOrEmpty(path) ? link.RelativePath : files.NormalizeRelativePath(path);
         if (!FileSystemService.IsWithinShareScope(link.RelativePath, normalized)) return NotFound();
-        return await RenderAsync(link.Owner, normalized, order.Sort, order.Direction, "share", token, link.RelativePath,
+        var folderResult = await RenderAsync(link.Owner, normalized, order.Sort, order.Direction, "share", token, link.RelativePath,
             canManage: false, focus, NormalizeItemsPerRow(itemsPerRow), NormalizeViewMode(view));
+        if (folderResult is ViewResult)
+            await shareAudit.RecordAsync(link, ShareAuditEventTypes.Access, normalized);
+        return folderResult;
     }
 
     private IActionResult InvalidShareToken(string clientAddress)
@@ -190,11 +202,30 @@ public sealed class GalleryController(
     }
 
     [AllowAnonymous]
+    [HttpPost]
+    public async Task<IActionResult> AuditView(string? token, string path)
+    {
+        var clientAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var cooldown = invalidShareTokenLimiter.GetCooldown(clientAddress);
+        if (cooldown.IsActive) return ShareCooldown(cooldown);
+        if (!IsShareTokenFormatValid(token)) return InvalidShareToken(clientAddress);
+
+        var access = await ResolveAccessAsync("share", null, token, path, requireFile: true);
+        if (access?.ShareLink is null) return NotFound();
+        var fullPath = files.ResolvePath(access.Value.Owner, access.Value.Path);
+        if (!FileSystemService.IsImage(Path.GetExtension(fullPath))) return NotFound();
+        await shareAudit.RecordAsync(access.Value.ShareLink, ShareAuditEventTypes.View, access.Value.Path);
+        return NoContent();
+    }
+
+    [AllowAnonymous]
     public async Task<IActionResult> Download(string mode, string? userName, string? token, string path)
     {
         var access = await ResolveAccessAsync(mode, userName, token, path, requireFile: true);
         if (access is null) return NotFound();
         var fullPath = files.ResolvePath(access.Value.Owner, access.Value.Path);
+        if (access.Value.ShareLink is not null)
+            await shareAudit.RecordAsync(access.Value.ShareLink, ShareAuditEventTypes.DownloadFile, access.Value.Path);
         return PhysicalFile(fullPath, GetContentType(fullPath), Path.GetFileName(fullPath), enableRangeProcessing: true);
     }
 
@@ -225,6 +256,8 @@ public sealed class GalleryController(
                 collectionEntries.AddRange(EnumerateFilesWithoutReparsePoints(collectionFolderPath)
                     .Select(filePath => (filePath, $"{entryRoot}/{Path.GetRelativePath(collectionFolderPath, filePath).Replace(Path.DirectorySeparatorChar, '/')}")));
             }
+            await shareAudit.RecordAsync(collectionLink, ShareAuditEventTypes.DownloadCollection,
+                collectionLink.Collection.Name, collectionEntries.Count);
             await WriteZipAsync(collectionLink.Collection.Name, collectionEntries, cancellationToken);
             return;
         }
@@ -235,7 +268,11 @@ public sealed class GalleryController(
 
         var downloadName = string.IsNullOrEmpty(access.Value.Path) ? access.Value.Owner.UserName ?? "gallery" : new DirectoryInfo(folderPath).Name;
         var entries = EnumerateFilesWithoutReparsePoints(folderPath)
-            .Select(filePath => (FilePath: filePath, EntryName: Path.GetRelativePath(folderPath, filePath).Replace('\\', '/')));
+            .Select(filePath => (FilePath: filePath, EntryName: Path.GetRelativePath(folderPath, filePath).Replace('\\', '/')))
+            .ToList();
+        if (access.Value.ShareLink is not null)
+            await shareAudit.RecordAsync(access.Value.ShareLink, ShareAuditEventTypes.DownloadFolder,
+                access.Value.Path, entries.Count);
         await WriteZipAsync(downloadName, entries, cancellationToken);
     }
 
@@ -258,6 +295,7 @@ public sealed class GalleryController(
         var folderPath = files.ResolvePath(folderAccess.Value.Owner, folderAccess.Value.Path);
         var normalizedFolderPath = Path.GetFullPath(folderPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var resolvedFiles = new List<string>(selected.Count);
+        var resolvedRelativePaths = new List<string>(selected.Count);
 
         foreach (var path in selected)
         {
@@ -267,15 +305,22 @@ public sealed class GalleryController(
             var parentPath = Path.GetFullPath(Path.GetDirectoryName(fullPath)!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             if (!string.Equals(parentPath, normalizedFolderPath, StringComparison.OrdinalIgnoreCase)) return NotFound();
             resolvedFiles.Add(fullPath);
+            resolvedRelativePaths.Add(access.Value.Path);
         }
 
         if (resolvedFiles.Count == 1)
         {
             var filePath = resolvedFiles[0];
+            if (folderAccess.Value.ShareLink is not null)
+                await shareAudit.RecordAsync(folderAccess.Value.ShareLink, ShareAuditEventTypes.DownloadSelection,
+                    resolvedRelativePaths[0], detailPaths: resolvedRelativePaths);
             return PhysicalFile(filePath, GetContentType(filePath), Path.GetFileName(filePath), enableRangeProcessing: true);
         }
 
         var zipName = $"selected-{DateTime.Now:yyyyMMdd-HHmmss}";
+        if (folderAccess.Value.ShareLink is not null)
+            await shareAudit.RecordAsync(folderAccess.Value.ShareLink, ShareAuditEventTypes.DownloadSelection,
+                folderAccess.Value.Path, resolvedFiles.Count, resolvedRelativePaths);
         await WriteZipAsync(zipName, resolvedFiles.Select(filePath => (filePath, Path.GetFileName(filePath))), cancellationToken);
         return new EmptyResult();
     }
@@ -302,6 +347,7 @@ public sealed class GalleryController(
                 ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && x.CollectionId == null && x.RelativePath == normalized && !x.IsRevoked).ToListAsync())
                     .OrderByDescending(x => x.CreatedAtUtc).ToList()
                 : [];
+            var shareSummaries = await shareAudit.GetSummariesAsync(links.Select(link => link.Id));
             var normalizedShareRoot = files.NormalizeRelativePath(shareRootPath).Replace('\\', '/');
             var normalizedPath = normalized.Replace('\\', '/');
             var parentPath = FileSystemService.GetParent(normalized);
@@ -327,7 +373,7 @@ public sealed class GalleryController(
                 InitialItemsPerRow = initialItemsPerRow,
                 InitialViewMode = initialViewMode,
                 Items = rows,
-                ShareLinks = links,
+                ShareLinks = links.Select(link => CreateShareManagementModel(link, shareSummaries)).ToList(),
                 IsCollectionShare = collection is not null,
                 CollectionName = collection?.Name ?? ""
             };
@@ -429,9 +475,27 @@ public sealed class GalleryController(
         _ => null
     };
 
-    private async Task<(ApplicationUser Owner, string Path)?> ResolveAccessAsync(string mode, string? userName, string? token, string path, bool requireFile)
+    private static ShareLinkManagementViewModel CreateShareManagementModel(
+        ShareLink link,
+        IReadOnlyDictionary<int, ShareAuditSummary> summaries)
+    {
+        summaries.TryGetValue(link.Id, out var summary);
+        summary ??= new ShareAuditSummary(0, 0, 0, 0, null);
+        return new ShareLinkManagementViewModel
+        {
+            Link = link,
+            AccessCount = summary.AccessCount,
+            ViewCount = summary.ViewCount,
+            DownloadCount = summary.DownloadCount,
+            UniqueVisitorCount = summary.UniqueVisitorCount,
+            LastActivityUtc = summary.LastActivityUtc
+        };
+    }
+
+    private async Task<ResolvedAccess?> ResolveAccessAsync(string mode, string? userName, string? token, string path, bool requireFile)
     {
         ApplicationUser? owner;
+        ShareLink? shareLink = null;
         var normalized = files.NormalizeRelativePath(path);
         switch (mode.ToLowerInvariant())
         {
@@ -445,6 +509,7 @@ public sealed class GalleryController(
                     .Include(x => x.Collection).ThenInclude(x => x!.Folders)
                     .SingleOrDefaultAsync(x => x.Token == token && !x.IsRevoked);
                 if (link?.Owner is null) return null;
+                shareLink = link;
                 if (link.Collection is null)
                 {
                     if (!FileSystemService.IsWithinShareScope(link.RelativePath, normalized)) return null;
@@ -458,7 +523,7 @@ public sealed class GalleryController(
         var resolved = files.ResolvePath(owner, normalized);
         if (!string.IsNullOrEmpty(normalized) && FileSystemService.IsIgnoredFileSystemEntry(resolved)) return null;
         if (requireFile ? !System.IO.File.Exists(resolved) : !Directory.Exists(resolved)) return null;
-        return (owner, normalized);
+        return new ResolvedAccess(owner, normalized, shareLink);
     }
 
     private static string GetContentType(string path) => ContentTypes.TryGetContentType(path, out var type) ? type : "application/octet-stream";
@@ -469,6 +534,8 @@ public sealed class GalleryController(
     }
     private static string CreateToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
     private static bool IsShareTokenFormatValid(string? token) => token is { Length: 48 } && token.All(Uri.IsHexDigit);
+
+    private readonly record struct ResolvedAccess(ApplicationUser Owner, string Path, ShareLink? ShareLink);
 
     private static GalleryCollectionFolder? FindCollectionRoot(GalleryCollection collection, string requestedPath) =>
         collection.Folders

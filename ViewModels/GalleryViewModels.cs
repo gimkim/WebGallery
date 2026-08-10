@@ -32,7 +32,7 @@ public sealed class GalleryViewModel
     public int? InitialItemsPerRow { get; init; }
     public string? InitialViewMode { get; init; }
     public required IReadOnlyList<GalleryItemViewModel> Items { get; init; }
-    public IReadOnlyList<ShareLink> ShareLinks { get; init; } = [];
+    public IReadOnlyList<ShareLinkManagementViewModel> ShareLinks { get; init; } = [];
     public bool IsCollectionShare { get; init; }
     public bool IsCollectionRoot { get; init; }
     public string CollectionName { get; init; } = "";
@@ -50,7 +50,27 @@ public sealed class CollectionManagementViewModel
     public required int Id { get; init; }
     public required string Name { get; init; }
     public required IReadOnlyList<CollectionFolderCardViewModel> Folders { get; init; }
-    public required IReadOnlyList<ShareLink> ShareLinks { get; init; }
+    public required IReadOnlyList<ShareLinkManagementViewModel> ShareLinks { get; init; }
+}
+
+public sealed class ShareLinkManagementViewModel
+{
+    public required ShareLink Link { get; init; }
+    public int AccessCount { get; init; }
+    public int ViewCount { get; init; }
+    public int DownloadCount { get; init; }
+    public int UniqueVisitorCount { get; init; }
+    public DateTimeOffset? LastActivityUtc { get; init; }
+}
+
+public sealed class ShareActivityViewModel
+{
+    public required ShareLink Link { get; init; }
+    public required string ShareLabel { get; init; }
+    public required ShareLinkManagementViewModel Summary { get; init; }
+    public required IReadOnlyList<ShareAuditEvent> Events { get; init; }
+    public int Page { get; init; }
+    public int TotalPages { get; init; }
 }
 
 public sealed class CollectionFolderCardViewModel

@@ -17,6 +17,7 @@ public static class DatabaseInitializer
         await db.Database.EnsureCreatedAsync();
         await EnsureShareLinkPresentationColumnsAsync(db);
         await EnsureCollectionSchemaAsync(db);
+        await EnsureShareAuditSchemaAsync(db);
 
         await db.FolderRules
             .Where(rule => rule.AccessMode != FolderAccessMode.Private)
@@ -175,6 +176,51 @@ public static class DatabaseInitializer
             {
                 command.CommandText = "CREATE INDEX IF NOT EXISTS IX_ShareLinks_CollectionId ON ShareLinks (CollectionId)";
                 await command.ExecuteNonQueryAsync();
+            }
+        }
+        finally
+        {
+            await connection.CloseAsync();
+        }
+    }
+
+    private static async Task EnsureShareAuditSchemaAsync(GalleryDbContext db)
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS ShareAuditEvents (
+                    Id INTEGER NOT NULL CONSTRAINT PK_ShareAuditEvents PRIMARY KEY AUTOINCREMENT,
+                    ShareLinkId INTEGER NOT NULL,
+                    OccurredAtUtc TEXT NOT NULL,
+                    EventType TEXT NOT NULL,
+                    TargetPath TEXT NOT NULL DEFAULT '',
+                    Details TEXT NOT NULL DEFAULT '',
+                    ItemCount INTEGER NOT NULL DEFAULT 1,
+                    ClientIp TEXT NOT NULL DEFAULT 'unknown',
+                    VisitorHash TEXT NOT NULL,
+                    CONSTRAINT FK_ShareAuditEvents_ShareLinks_ShareLinkId FOREIGN KEY (ShareLinkId) REFERENCES ShareLinks (Id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS IX_ShareAuditEvents_ShareLinkId_OccurredAtUtc ON ShareAuditEvents (ShareLinkId, OccurredAtUtc);
+                CREATE INDEX IF NOT EXISTS IX_ShareAuditEvents_ShareLinkId_EventType ON ShareAuditEvents (ShareLinkId, EventType);
+                """;
+            await command.ExecuteNonQueryAsync();
+
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            await using (var columnCommand = connection.CreateCommand())
+            {
+                columnCommand.CommandText = "PRAGMA table_info('ShareAuditEvents')";
+                await using var reader = await columnCommand.ExecuteReaderAsync();
+                while (await reader.ReadAsync()) columns.Add(reader.GetString(1));
+            }
+            if (!columns.Contains("ClientIp"))
+            {
+                await using var addColumnCommand = connection.CreateCommand();
+                addColumnCommand.CommandText = "ALTER TABLE ShareAuditEvents ADD COLUMN ClientIp TEXT NOT NULL DEFAULT 'unknown'";
+                await addColumnCommand.ExecuteNonQueryAsync();
             }
         }
         finally

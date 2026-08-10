@@ -696,6 +696,29 @@ img[data-thumbnail-src].thumbnail-loaded {
   gap: 8px;
   margin: 8px 0;
 }
+.share-entry {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+}
+.share-entry .share-row {
+  margin: 0;
+}
+.share-metrics {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  flex-wrap: wrap;
+}
+.share-metrics strong {
+  color: var(--text);
+}
+.share-last-activity {
+  margin-left: auto;
+}
 .share-row-created {
   padding: 10px;
   border: 1px solid var(--accent);
@@ -709,6 +732,79 @@ img[data-thumbnail-src].thumbnail-loaded {
 }
 .share-row form {
   display: flex;
+}
+.share-activity-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.share-activity-summary .panel {
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+}
+.share-activity-summary strong {
+  color: var(--accent);
+  font-size: 1.65rem;
+}
+.share-activity-summary span {
+  color: var(--muted);
+}
+.share-activity-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.share-activity-panel h2 {
+  margin: 5px 0;
+}
+.share-activity-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+.share-activity-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.share-activity-table th,
+.share-activity-table td {
+  padding: 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.share-activity-table th {
+  color: var(--accent);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+.share-activity-table td small {
+  display: block;
+  max-width: 520px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-target {
+  display: block;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.compact-empty {
+  padding: 40px 20px;
 }
 .danger-text {
   border: 0;
@@ -1389,5 +1485,16 @@ img[data-thumbnail-src].thumbnail-loaded {
   .collection-card-heading-toggle {
     width: calc(100% + 16px);
     margin-right: -8px;
+  }
+  .share-activity-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .share-activity-panel > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .share-last-activity {
+    width: 100%;
+    margin-left: 0;
   }
 }

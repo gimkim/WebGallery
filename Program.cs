@@ -48,7 +48,9 @@ builder.Services.ConfigureApplicationCookie(options =>
 });
 builder.Services.Configure<GalleryOptions>(builder.Configuration.GetSection("Gallery"));
 builder.Services.AddControllersWithViews();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<FileSystemService>();
+builder.Services.AddScoped<ShareAuditService>();
 builder.Services.AddSingleton(_ => new ThumbnailQueueSettings(
     builder.Configuration.GetValue("Gallery:ThumbnailConcurrency", ThumbnailQueueSettings.DefaultConcurrency)));
 builder.Services.AddSingleton<ThumbnailWorkQueue>();

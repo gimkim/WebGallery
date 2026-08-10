@@ -15,4 +15,5 @@ public sealed class ShareLink
     public string ViewMode { get; set; } = "grid";
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public bool IsRevoked { get; set; }
+    public List<ShareAuditEvent> AuditEvents { get; set; } = [];
 }

@@ -16,6 +16,7 @@ public sealed class CollectionsController(
     UserManager<ApplicationUser> userManager,
     GalleryDbContext db,
     FileSystemService files,
+    ShareAuditService shareAudit,
     IOptions<GalleryOptions> options) : Controller
 {
     public async Task<IActionResult> Index()
@@ -28,6 +29,7 @@ public sealed class CollectionsController(
             .Include(x => x.ShareLinks.Where(link => !link.IsRevoked))
             .OrderBy(x => x.Name)
             .ToListAsync();
+        var shareSummaries = await shareAudit.GetSummariesAsync(collections.SelectMany(collection => collection.ShareLinks).Select(link => link.Id));
         var collectionModels = collections.Select(collection => new CollectionManagementViewModel
         {
             Id = collection.Id,
@@ -44,6 +46,7 @@ public sealed class CollectionsController(
             ShareLinks = collection.ShareLinks
                 .Where(link => !link.IsRevoked)
                 .OrderByDescending(link => link.CreatedAtUtc)
+                .Select(link => CreateShareManagementModel(link, shareSummaries))
                 .ToList()
         }).ToList();
         return View(new CollectionsIndexViewModel
@@ -249,6 +252,51 @@ public sealed class CollectionsController(
         return RedirectToAction(nameof(Index));
     }
 
+    [HttpGet]
+    public async Task<IActionResult> ShareActivity(int id, int page = 1)
+    {
+        var owner = await userManager.GetUserAsync(User);
+        var link = owner is null ? null : await db.ShareLinks
+            .Include(item => item.Collection)
+            .SingleOrDefaultAsync(item => item.Id == id && item.OwnerUserId == owner.Id);
+        if (link is null) return NotFound();
+
+        const int pageSize = 100;
+        page = Math.Max(1, page);
+        var query = db.ShareAuditEvents.Where(item => item.ShareLinkId == link.Id);
+        var total = await query.CountAsync();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)pageSize));
+        page = Math.Min(page, totalPages);
+        var events = await query.OrderByDescending(item => item.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+        var summaries = await shareAudit.GetSummariesAsync([link.Id]);
+        var shareLabel = link.Collection?.Name
+            ?? (string.IsNullOrWhiteSpace(link.RelativePath) ? "Home" : link.RelativePath.Replace('\\', '/'));
+        return View(new ShareActivityViewModel
+        {
+            Link = link,
+            ShareLabel = shareLabel,
+            Summary = CreateShareManagementModel(link, summaries),
+            Events = events,
+            Page = page,
+            TotalPages = totalPages
+        });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ClearShareActivity(int id)
+    {
+        var owner = await userManager.GetUserAsync(User);
+        var ownsLink = owner is not null && await db.ShareLinks.AnyAsync(item => item.Id == id && item.OwnerUserId == owner.Id);
+        if (!ownsLink) return NotFound();
+        await db.ShareAuditEvents.Where(item => item.ShareLinkId == id).ExecuteDeleteAsync();
+        TempData["Success"] = "Share activity log cleared.";
+        return RedirectToAction(nameof(ShareActivity), new { id });
+    }
+
     private static string? NormalizeName(string? name)
     {
         var value = name?.Trim();
@@ -260,6 +308,23 @@ public sealed class CollectionsController(
 
     private static string NormalizeDirection(string? value) =>
         string.Equals(value, "desc", StringComparison.OrdinalIgnoreCase) ? "desc" : "asc";
+
+    private static ShareLinkManagementViewModel CreateShareManagementModel(
+        ShareLink link,
+        IReadOnlyDictionary<int, ShareAuditSummary> summaries)
+    {
+        summaries.TryGetValue(link.Id, out var summary);
+        summary ??= new ShareAuditSummary(0, 0, 0, 0, null);
+        return new ShareLinkManagementViewModel
+        {
+            Link = link,
+            AccessCount = summary.AccessCount,
+            ViewCount = summary.ViewCount,
+            DownloadCount = summary.DownloadCount,
+            UniqueVisitorCount = summary.UniqueVisitorCount,
+            LastActivityUtc = summary.LastActivityUtc
+        };
+    }
 
     private GalleryItemViewModel? GetCollectionFolderItem(ApplicationUser owner, string relativePath)
     {

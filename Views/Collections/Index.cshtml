@@ -40,7 +40,7 @@ else
         var collectionBodyId = $"collection-body-{collection.Id}";
         var foldersBodyId = $"collection-folders-{collection.Id}";
         var shareLinksBodyId = $"collection-share-links-{collection.Id}";
-        var forceExpanded = createdLinkId is not null && collection.ShareLinks.Any(link => link.Id == createdLinkId.Value);
+        var forceExpanded = createdLinkId is not null && collection.ShareLinks.Any(share => share.Link.Id == createdLinkId.Value);
         <article class="panel collection-card" data-collection-collapsible data-collection-id="@collection.Id" data-force-expanded="@(forceExpanded ? "true" : "false")">
             <header>
                 <button class="collection-card-heading-toggle" type="button" data-collection-toggle data-collection-name="@collection.Name" aria-controls="@collectionBodyId" aria-expanded="@(forceExpanded ? "true" : "false")">
@@ -124,12 +124,20 @@ else
                     <span class="collection-section-state" data-section-state>Expanded</span>
                 </button>
                 <div id="@shareLinksBodyId" class="collection-section-body collection-share-content" data-section-body>
-                @foreach (var link in collection.ShareLinks)
+                @foreach (var share in collection.ShareLinks)
                 {
+                    var link = share.Link;
                     var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
-                    <div class="share-row @(link.Id == createdLinkId ? "share-row-created" : "")">
-                        <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
-                        <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><button class="danger-text" type="submit">Revoke</button></form>
+                    <div class="share-entry @(link.Id == createdLinkId ? "share-row-created" : "")">
+                        <div class="share-row">
+                            <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
+                            <a class="button compact" asp-action="ShareActivity" asp-route-id="@link.Id">Activity</a>
+                            <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><button class="danger-text" type="submit">Revoke</button></form>
+                        </div>
+                        <div class="share-metrics" aria-label="Share activity summary">
+                            <span><strong>@share.AccessCount</strong> accesses</span><span><strong>@share.ViewCount</strong> views</span><span><strong>@share.DownloadCount</strong> downloads</span><span><strong>@share.UniqueVisitorCount</strong> visitors</span>
+                            <span class="share-last-activity">@(share.LastActivityUtc is null ? "No activity yet" : $"Last {share.LastActivityUtc.Value.ToLocalTime():dd/MM/yyyy HH:mm}")</span>
+                        </div>
                     </div>
                 }
                 <form asp-action="CreateShare" method="post" class="collection-share-create" data-create-share>

@@ -724,6 +724,13 @@
     if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Loading full image...';
     if (viewerProgress) viewerProgress.hidden = true;
     updateViewerProgress(0, 0);
+    if (button.dataset.shareAudit) {
+      fetch(button.dataset.shareAudit, {
+        method: 'POST',
+        credentials: 'same-origin',
+        keepalive: true
+      }).catch(() => { });
+    }
 
     let thumbnailDisplayed = false;
     let originalReady = false;
