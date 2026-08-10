@@ -122,6 +122,27 @@
     render(forceExpanded);
   });
 
+  const folderSharesSection = document.querySelector('[data-folder-shares-collapsible]');
+  const folderSharesToggle = folderSharesSection?.querySelector('[data-folder-shares-toggle]');
+  const folderSharesBody = folderSharesSection?.querySelector('[data-folder-shares-body]');
+  if (folderSharesSection && folderSharesToggle && folderSharesBody) {
+    const storageKey = 'gim-folder-shares-expanded';
+    let expanded = localStorage.getItem(storageKey) !== 'false';
+    const render = persist => {
+      folderSharesBody.hidden = !expanded;
+      folderSharesToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      folderSharesToggle.setAttribute('aria-label', expanded ? 'Collapse folder share links' : 'Expand folder share links');
+      folderSharesToggle.title = expanded ? 'Collapse folder share links' : 'Expand folder share links';
+      folderSharesSection.classList.toggle('folder-share-links-collapsed', !expanded);
+      if (persist) localStorage.setItem(storageKey, expanded ? 'true' : 'false');
+    };
+    folderSharesToggle.addEventListener('click', () => {
+      expanded = !expanded;
+      render(true);
+    });
+    render(false);
+  }
+
   const thumbnailStates = new WeakMap();
   const thumbnailImages = [...document.querySelectorAll('img[data-thumbnail-src]')];
   const maximumThumbnailRequests = 12;

@@ -1773,43 +1773,155 @@ select,
   font-weight: 700;
 }
 .folder-share-links-section {
-  padding: 18px;
+  overflow: hidden;
+  padding: 0;
   margin-top: 24px;
 }
-.folder-share-links-heading h2 {
+.folder-share-links-toggle {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+  cursor: pointer;
+}
+.folder-share-links-toggle:hover {
+  background: rgba(24, 231, 255, 0.08);
+}
+.folder-share-links-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+.folder-share-links-toggle[aria-expanded="true"] .collection-disclosure-icon {
+  transform: rotate(45deg);
+}
+.folder-share-links-title-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.folder-share-links-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+.folder-share-links-description {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.folder-share-links-badges {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.folder-share-links-body {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+.folder-share-group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 620px), 1fr));
+  gap: 14px;
+}
+.folder-share-group {
+  display: grid;
+  grid-template-columns: clamp(170px, 18vw, 230px) minmax(0, 1fr);
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: rgba(8, 11, 22, 0.38);
+}
+.folder-share-group-preview {
+  align-self: start;
+  min-width: 0;
+  padding: 12px;
+}
+.folder-share-group-preview .media {
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.folder-share-group-content {
+  min-width: 0;
+  padding: 12px 12px 12px 0;
+}
+.folder-share-group-heading {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
-  margin: 5px 0;
+  min-width: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
-.folder-share-link-list {
+.folder-share-group-icon {
   display: grid;
-  gap: 10px;
-  margin-top: 14px;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--accent);
+}
+.folder-share-group-icon svg {
+  width: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+.folder-share-group-copy {
+  min-width: 0;
+  margin-right: auto;
+}
+.folder-share-group-copy h3,
+.folder-share-group-copy p {
+  margin: 0;
+}
+.folder-share-group-copy h3 {
+  overflow: hidden;
+  font-size: 1.05rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-share-group-copy p {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-share-group-links {
+  display: grid;
+  gap: 9px;
+  padding-top: 10px;
 }
 .folder-share-entry {
   padding: 12px;
   border: 1px solid var(--border);
-  background: rgba(8, 11, 22, 0.38);
+  border-left: 3px solid var(--accent);
+  background: rgba(19, 27, 52, 0.58);
 }
-.folder-share-entry-heading {
+.folder-share-link-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.folder-share-entry-heading h3,
-.folder-share-entry-heading p {
-  margin: 0;
-}
-.folder-share-entry-heading p {
-  margin-top: 3px;
+  gap: 10px;
+  margin-bottom: 9px;
   font-size: 0.78rem;
 }
+.folder-share-link-heading .share-link-details {
+  justify-content: flex-end;
+}
+.folder-share-url-row {
+  margin: 0;
+}
+.folder-share-group-unavailable {
+  opacity: 0.72;
+}
 .folder-share-empty {
-  margin-top: 14px;
+  margin: 0;
 }
 .collection-section-collapsed .collection-section-toggle {
   border-bottom-color: transparent;
@@ -1924,12 +2036,35 @@ select,
     grid-column: 1 / -1;
     justify-self: start;
   }
-  .folder-share-entry-heading {
-    align-items: stretch;
-    flex-direction: column;
+  .folder-share-links-toggle {
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
-  .folder-share-entry-heading .button {
-    align-self: flex-start;
+  .folder-share-links-badges {
+    width: 100%;
+    margin-left: 27px;
+  }
+  .folder-share-group {
+    grid-template-columns: 1fr;
+  }
+  .folder-share-group-preview {
+    width: min(100%, 320px);
+    justify-self: center;
+  }
+  .folder-share-group-content {
+    padding: 0 12px 12px;
+  }
+  .folder-share-group-heading,
+  .folder-share-link-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .folder-share-group-heading .button {
+    margin-left: 38px;
+  }
+  .folder-share-link-heading .share-link-details {
+    width: 100%;
+    justify-content: flex-start;
   }
   .management-log-filters {
     grid-template-columns: 1fr;

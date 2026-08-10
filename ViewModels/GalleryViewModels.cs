@@ -42,8 +42,17 @@ public sealed class CollectionsIndexViewModel
 {
     public required string OwnerUserName { get; init; }
     public required IReadOnlyList<CollectionManagementViewModel> Collections { get; init; }
-    public required IReadOnlyList<ShareLinkManagementViewModel> FolderShareLinks { get; init; }
+    public required IReadOnlyList<FolderShareGroupViewModel> FolderShareGroups { get; init; }
+    public int FolderShareLinkCount => FolderShareGroups.Sum(group => group.ShareLinks.Count);
     public int DefaultItemsPerRow { get; init; } = 8;
+}
+
+public sealed class FolderShareGroupViewModel
+{
+    public required string RelativePath { get; init; }
+    public required string DisplayName { get; init; }
+    public GalleryItemViewModel? Item { get; init; }
+    public required IReadOnlyList<ShareLinkManagementViewModel> ShareLinks { get; init; }
 }
 
 public sealed class CollectionManagementViewModel

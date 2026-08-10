@@ -55,11 +55,24 @@ public sealed class CollectionsController(
                 .Select(link => CreateShareManagementModel(link, shareSummaries))
                 .ToList()
         }).ToList();
+        var folderShareGroups = folderShareLinks
+            .Select(link => CreateShareManagementModel(link, shareSummaries))
+            .GroupBy(share => share.Link.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new FolderShareGroupViewModel
+            {
+                RelativePath = group.Key,
+                DisplayName = GetFolderShareDisplayName(group.Key),
+                Item = GetCollectionFolderItem(owner, group.Key),
+                ShareLinks = group.OrderByDescending(share => share.Link.CreatedAtUtc).ToList()
+            })
+            .OrderBy(group => group.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(group => group.RelativePath, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
         return View(new CollectionsIndexViewModel
         {
             OwnerUserName = owner.UserName ?? "",
             Collections = collectionModels,
-            FolderShareLinks = folderShareLinks.Select(link => CreateShareManagementModel(link, shareSummaries)).ToList(),
+            FolderShareGroups = folderShareGroups,
             DefaultItemsPerRow = options.Value.DefaultItemsPerRow
         });
     }
@@ -342,6 +355,12 @@ public sealed class CollectionsController(
 
     private static string NormalizeDirection(string? value) =>
         string.Equals(value, "desc", StringComparison.OrdinalIgnoreCase) ? "desc" : "asc";
+
+    private static string GetFolderShareDisplayName(string relativePath)
+    {
+        var normalized = relativePath.Replace('\\', '/').TrimEnd('/');
+        return string.IsNullOrEmpty(normalized) ? "Home" : normalized.Split('/').Last();
+    }
 
     private static ShareLinkManagementViewModel CreateShareManagementModel(
         ShareLink link,
