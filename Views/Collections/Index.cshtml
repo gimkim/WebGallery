@@ -45,7 +45,7 @@ else
         var foldersBodyId = $"collection-folders-{collection.Id}";
         var shareLinksBodyId = $"collection-share-links-{collection.Id}";
         var forceExpanded = createdLinkId is not null && collection.ShareLinks.Any(share => share.Link.Id == createdLinkId.Value);
-        <article class="panel collection-card" data-collection-collapsible data-collection-id="@collection.Id" data-force-expanded="@(forceExpanded ? "true" : "false")">
+        <article class="panel collection-card" data-collection-collapsible data-collection-id="@collection.Id" data-folder-count="@collection.Folders.Count" data-force-expanded="@(forceExpanded ? "true" : "false")">
             <header>
                 <button class="collection-card-heading-toggle" type="button" data-collection-toggle data-collection-name="@collection.Name" aria-controls="@collectionBodyId" aria-expanded="@(forceExpanded ? "true" : "false")">
                     <span class="collection-disclosure-icon" aria-hidden="true"></span>
@@ -81,7 +81,7 @@ else
                 }
                 else
                 {
-                    <div class="gallery-grid collection-folder-grid" data-default-columns="@Model.DefaultItemsPerRow" style="--columns:@Model.DefaultItemsPerRow">
+                    <div class="gallery-grid collection-folder-grid" data-default-columns="@Model.DefaultItemsPerRow" data-folder-count="@collection.Folders.Count" style="--columns:@Math.Min(Model.DefaultItemsPerRow, collection.Folders.Count)">
                     @foreach (var folder in collection.Folders)
                     {
                         var item = folder.Item;

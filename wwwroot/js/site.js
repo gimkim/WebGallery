@@ -19,14 +19,43 @@
   const columnsValue = document.querySelector('#columns-value');
   const viewButtons = document.querySelectorAll('[data-view]');
   const collectionFolderGrids = document.querySelectorAll('.collection-folder-grid');
+  const collectionList = document.querySelector('.collection-list');
+  const collectionCards = document.querySelectorAll('[data-collection-collapsible]');
   const savedView = gallery?.dataset.initialView || localStorage.getItem('gim-gallery-view') || 'grid';
   const savedColumns = Number(gallery?.dataset.initialColumns || localStorage.getItem('gim-gallery-columns'));
 
   collectionFolderGrids.forEach(grid => {
     const defaultColumns = Number(grid.dataset.defaultColumns) || 8;
     const gridColumns = savedColumns >= 2 && savedColumns <= 10 ? savedColumns : defaultColumns;
-    grid.style.setProperty('--columns', gridColumns);
+    const folderCount = Math.max(1, Number(grid.dataset.folderCount) || gridColumns);
+    grid.style.setProperty('--columns', Math.min(gridColumns, folderCount));
   });
+
+  let collectionLayoutFrame = 0;
+  const updateCollectionLayout = () => {
+    collectionLayoutFrame = 0;
+    if (!collectionList) return;
+
+    const gap = Number.parseFloat(getComputedStyle(collectionList).columnGap) || 18;
+    const availableTracks = Math.max(1, Math.floor((collectionList.clientWidth + gap) / (360 + gap)));
+    const requestedColumns = Math.max(2, Math.min(10, Number(columns?.value || savedColumns || 8)));
+    collectionCards.forEach(card => {
+      const folderCount = Math.max(0, Number(card.dataset.folderCount) || 0);
+      const foldersSection = card.querySelector('[data-section-key="folders"]');
+      const foldersVisible = !card.classList.contains('collection-collapsed')
+        && foldersSection
+        && !foldersSection.classList.contains('collection-section-collapsed');
+      const visibleFolderColumns = Math.min(folderCount, requestedColumns);
+      const desiredTracks = foldersVisible && visibleFolderColumns > 0
+        ? Math.ceil(visibleFolderColumns / 2)
+        : 1;
+      card.style.setProperty('--collection-span', Math.min(availableTracks, desiredTracks));
+    });
+  };
+  const scheduleCollectionLayout = () => {
+    if (collectionLayoutFrame) return;
+    collectionLayoutFrame = window.requestAnimationFrame(updateCollectionLayout);
+  };
 
   function setView(view) {
     const normalizedView = view === 'list' ? 'list' : 'grid';
@@ -40,9 +69,13 @@
     if (savedColumns >= 2 && savedColumns <= 10) columns.value = savedColumns;
     const updateColumns = () => {
       gallery?.style.setProperty('--columns', columns.value);
-      collectionFolderGrids.forEach(grid => grid.style.setProperty('--columns', columns.value));
+      collectionFolderGrids.forEach(grid => {
+        const folderCount = Math.max(1, Number(grid.dataset.folderCount) || Number(columns.value));
+        grid.style.setProperty('--columns', Math.min(Number(columns.value), folderCount));
+      });
       if (columnsValue) columnsValue.textContent = columns.value;
       localStorage.setItem('gim-gallery-columns', columns.value);
+      scheduleCollectionLayout();
     };
     columns.addEventListener('input', updateColumns);
     updateColumns();
@@ -72,6 +105,7 @@
       toggle.title = `${action} collection`;
       card.classList.toggle('collection-collapsed', !expanded);
       if (persist) localStorage.setItem(storageKey, expanded ? 'true' : 'false');
+      scheduleCollectionLayout();
     };
     toggle.addEventListener('click', () => {
       expanded = !expanded;
@@ -114,6 +148,7 @@
       toggle.title = `${action} ${sectionName}`;
       section.classList.toggle('collection-section-collapsed', !expanded);
       if (persist) localStorage.setItem(storageKey, expanded ? 'true' : 'false');
+      scheduleCollectionLayout();
     };
     toggle.addEventListener('click', () => {
       expanded = !expanded;
@@ -121,6 +156,15 @@
     });
     render(forceExpanded);
   });
+
+  if (collectionList) {
+    if ('ResizeObserver' in window) {
+      new ResizeObserver(scheduleCollectionLayout).observe(collectionList);
+    } else {
+      window.addEventListener('resize', scheduleCollectionLayout);
+    }
+    scheduleCollectionLayout();
+  }
 
   const folderSharesSection = document.querySelector('[data-folder-shares-collapsible]');
   const folderSharesToggle = folderSharesSection?.querySelector('[data-folder-shares-toggle]');
