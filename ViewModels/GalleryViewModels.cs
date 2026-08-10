@@ -42,6 +42,7 @@ public sealed class CollectionsIndexViewModel
 {
     public required string OwnerUserName { get; init; }
     public required IReadOnlyList<CollectionManagementViewModel> Collections { get; init; }
+    public required IReadOnlyList<ShareLinkManagementViewModel> FolderShareLinks { get; init; }
     public int DefaultItemsPerRow { get; init; } = 8;
 }
 

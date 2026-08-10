@@ -1494,6 +1494,46 @@ img[data-thumbnail-src].thumbnail-loaded {
   color: var(--text);
   font-weight: 600;
 }
+.folder-share-links-section {
+  padding: 18px;
+  margin-top: 24px;
+}
+.folder-share-links-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 5px 0;
+}
+.folder-share-link-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.folder-share-entry {
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(13, 17, 23, 0.36);
+}
+.folder-share-entry-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.folder-share-entry-heading h3,
+.folder-share-entry-heading p {
+  margin: 0;
+}
+.folder-share-entry-heading p {
+  margin-top: 3px;
+  font-size: 0.8rem;
+}
+.folder-share-empty {
+  margin-top: 14px;
+}
 .collection-section-collapsed .collection-section-toggle {
   border-bottom-color: transparent;
 }
@@ -1607,6 +1647,13 @@ img[data-thumbnail-src].thumbnail-loaded {
   .collection-section-empty > :last-child {
     grid-column: 1 / -1;
     justify-self: start;
+  }
+  .folder-share-entry-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .folder-share-entry-heading .button {
+    align-self: flex-start;
   }
   .management-log-filters {
     grid-template-columns: 1fr;

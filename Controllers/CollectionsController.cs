@@ -29,7 +29,13 @@ public sealed class CollectionsController(
             .Include(x => x.ShareLinks.Where(link => !link.IsRevoked))
             .OrderBy(x => x.Name)
             .ToListAsync();
-        var shareSummaries = await shareAudit.GetSummariesAsync(collections.SelectMany(collection => collection.ShareLinks).Select(link => link.Id));
+        var folderShareLinks = await db.ShareLinks
+            .Where(link => link.OwnerUserId == owner.Id && link.CollectionId == null && !link.IsRevoked)
+            .ToListAsync();
+        folderShareLinks = folderShareLinks.OrderByDescending(link => link.CreatedAtUtc).ToList();
+        var allShareLinkIds = collections.SelectMany(collection => collection.ShareLinks).Select(link => link.Id)
+            .Concat(folderShareLinks.Select(link => link.Id));
+        var shareSummaries = await shareAudit.GetSummariesAsync(allShareLinkIds);
         var collectionModels = collections.Select(collection => new CollectionManagementViewModel
         {
             Id = collection.Id,
@@ -53,6 +59,7 @@ public sealed class CollectionsController(
         {
             OwnerUserName = owner.UserName ?? "",
             Collections = collectionModels,
+            FolderShareLinks = folderShareLinks.Select(link => CreateShareManagementModel(link, shareSummaries)).ToList(),
             DefaultItemsPerRow = options.Value.DefaultItemsPerRow
         });
     }
@@ -271,11 +278,11 @@ public sealed class CollectionsController(
     {
         var owner = await userManager.GetUserAsync(User);
         var link = owner is null ? null : await db.ShareLinks
-            .SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == owner.Id && x.CollectionId != null);
+            .SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == owner.Id);
         if (link is null) return NotFound();
         link.IsRevoked = true;
         await db.SaveChangesAsync();
-        TempData["Success"] = "Collection share link revoked.";
+        TempData["Success"] = "Share link revoked.";
         return RedirectToAction(nameof(Index));
     }
 

@@ -186,3 +186,53 @@ else
     }
     </section>
 }
+
+<section class="panel folder-share-links-section">
+    <header class="folder-share-links-heading">
+        <div><div class="eyebrow">FOLDER SHARING</div><h2>Folder share links <span class="collection-count-badge">@Model.FolderShareLinks.Count link@(Model.FolderShareLinks.Count == 1 ? "" : "s")</span></h2><p class="muted">Active links created from individual Gallery folders.</p></div>
+    </header>
+    @if (Model.FolderShareLinks.Count == 0)
+    {
+        <div class="collection-section-empty folder-share-empty">
+            <svg class="collection-empty-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 14.5l5-5"/><path d="M7.2 17.8l-1 1a3 3 0 01-4.2-4.2l4-4a3 3 0 014.2 0"/><path d="M16.8 6.2l1-1A3 3 0 0122 9.4l-4 4a3 3 0 01-4.2 0"/></svg>
+            <div><h3>No folder share links</h3><p>Open a Gallery folder and use Share to create an unlisted link.</p></div>
+            <a class="button compact" asp-controller="Gallery" asp-action="Index">Browse Gallery</a>
+        </div>
+    }
+    else
+    {
+        <div class="folder-share-link-list">
+        @foreach (var share in Model.FolderShareLinks)
+        {
+            var link = share.Link;
+            var folderPath = link.RelativePath.Replace('\\', '/');
+            var folderLabel = string.IsNullOrWhiteSpace(folderPath) ? "Home" : folderPath.Split('/').Last();
+            var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
+            var viewLabel = string.Equals(link.ViewMode, "list", StringComparison.OrdinalIgnoreCase) ? "List" : "Grid";
+            var sortLabel = link.Sort.ToLowerInvariant() switch { "size" => "Size", "date" => "Date", _ => "Name" };
+            var directionLabel = string.Equals(link.Direction, "desc", StringComparison.OrdinalIgnoreCase) ? "descending" : "ascending";
+            <article class="share-entry folder-share-entry">
+                <header class="folder-share-entry-heading">
+                    <div><h3>@folderLabel</h3><p class="muted">@(string.IsNullOrWhiteSpace(folderPath) ? "Gallery home" : folderPath)</p></div>
+                    <a class="button compact" asp-controller="Gallery" asp-action="Index" asp-route-path="@link.RelativePath">Open folder</a>
+                </header>
+                <div class="share-row">
+                    <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
+                    <a class="button compact" asp-action="ShareActivity" asp-route-id="@link.Id">Activity</a>
+                    <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><button class="danger-text" type="submit">Revoke</button></form>
+                </div>
+                <div class="share-link-details" aria-label="Saved share link settings">
+                    <span>Created @link.CreatedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                    <span class="share-setting-badge">@viewLabel</span>
+                    <span class="share-setting-badge">Sort: @sortLabel @directionLabel</span>
+                    <span class="share-setting-badge">@link.ItemsPerRow per row</span>
+                </div>
+                <div class="share-metrics" aria-label="Share activity summary">
+                    <span><strong>@share.AccessCount</strong> accesses</span><span><strong>@share.ViewCount</strong> views</span><span><strong>@share.DownloadCount</strong> downloads</span><span><strong>@share.UniqueVisitorCount</strong> visitors</span>
+                    <span class="share-last-activity">@(share.LastActivityUtc is null ? "No activity yet" : $"Last {share.LastActivityUtc.Value.ToLocalTime():dd/MM/yyyy HH:mm}")</span>
+                </div>
+            </article>
+        }
+        </div>
+    }
+</section>
