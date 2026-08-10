@@ -21,6 +21,10 @@
   const collectionFolderGrids = document.querySelectorAll('.collection-folder-grid');
   const collectionList = document.querySelector('.collection-list');
   const collectionCards = document.querySelectorAll('[data-collection-collapsible]');
+  const galleryToolbar = document.querySelector('.gallery-toolbar');
+  const gallerySearch = document.querySelector('#gallery-search');
+  const galleryTypeFilter = document.querySelector('#gallery-type-filter');
+  const gallerySortSelect = document.querySelector('#gallery-sort-select');
   const savedView = gallery?.dataset.initialView || localStorage.getItem('gim-gallery-view') || 'grid';
   const savedColumns = Number(gallery?.dataset.initialColumns || localStorage.getItem('gim-gallery-columns'));
 
@@ -60,7 +64,11 @@
   function setView(view) {
     const normalizedView = view === 'list' ? 'list' : 'grid';
     gallery?.classList.toggle('list-view', normalizedView === 'list');
-    viewButtons.forEach(button => button.classList.toggle('active', button.dataset.view === normalizedView));
+    viewButtons.forEach(button => {
+      const active = button.dataset.view === normalizedView;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
     localStorage.setItem('gim-gallery-view', normalizedView);
   }
   viewButtons.forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
@@ -80,6 +88,21 @@
     columns.addEventListener('input', updateColumns);
     updateColumns();
   }
+
+  const updateStickyListHeaderOffset = () => {
+    if (!galleryToolbar) return;
+    document.documentElement.style.setProperty('--gallery-toolbar-height', `${galleryToolbar.offsetHeight}px`);
+  };
+  if (galleryToolbar) {
+    if ('ResizeObserver' in window) new ResizeObserver(updateStickyListHeaderOffset).observe(galleryToolbar);
+    else window.addEventListener('resize', updateStickyListHeaderOffset);
+    updateStickyListHeaderOffset();
+  }
+  gallerySortSelect?.addEventListener('change', () => {
+    if (!gallerySortSelect.value) return;
+    cancelThumbnailRequests(false);
+    window.location.assign(gallerySortSelect.value);
+  });
 
   document.querySelectorAll('form[data-create-share]').forEach(form => {
     form.addEventListener('submit', () => {
@@ -399,15 +422,29 @@
   const selectAll = document.querySelector('#select-all');
   const selectedButton = document.querySelector('#download-selected');
   const selectedCount = document.querySelector('#selected-count');
+  const selectionToolbar = document.querySelector('#selection-toolbar');
+  const galleryToolbarMain = document.querySelector('[data-gallery-toolbar-main]');
+  const clearSelection = document.querySelector('#clear-selection');
+  const visibleSummary = document.querySelector('#gallery-visible-summary');
+  const filterEmpty = document.querySelector('#gallery-filter-empty');
+  const clearGalleryFilter = document.querySelector('#clear-gallery-filter');
+  const filterableCards = [...(gallery?.querySelectorAll('[data-item-kind]') || [])];
+  const visibleFileSelects = () => fileSelects.filter(input => !input.closest('.gallery-card')?.hidden);
   function updateSelection() {
     const count = fileSelects.filter(input => input.checked).length;
+    const visibleInputs = visibleFileSelects();
+    const visibleSelectedCount = visibleInputs.filter(input => input.checked).length;
     fileSelects.forEach(input => input.closest('.gallery-card')?.classList.toggle('selected', input.checked));
     if (selectedCount) selectedCount.textContent = count;
     if (selectedButton) selectedButton.disabled = count === 0;
+    if (selectionToolbar) selectionToolbar.hidden = count === 0;
+    if (galleryToolbarMain) galleryToolbarMain.hidden = count > 0;
+    galleryToolbar?.classList.toggle('selection-active', count > 0);
     if (selectAll) {
-      selectAll.checked = count > 0 && count === fileSelects.length;
-      selectAll.indeterminate = count > 0 && count < fileSelects.length;
+      selectAll.checked = visibleInputs.length > 0 && visibleSelectedCount === visibleInputs.length;
+      selectAll.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleInputs.length;
     }
+    updateStickyListHeaderOffset();
   }
   let selectionAnchor = null;
   fileSelects.forEach((input, index) => input.addEventListener('change', () => {
@@ -415,8 +452,41 @@
     updateSelection();
   }));
   selectAll?.addEventListener('change', () => {
-    fileSelects.forEach(input => input.checked = selectAll.checked);
+    visibleFileSelects().forEach(input => input.checked = selectAll.checked);
     updateSelection();
+  });
+  clearSelection?.addEventListener('click', () => {
+    fileSelects.forEach(input => input.checked = false);
+    selectionAnchor = null;
+    updateSelection();
+  });
+
+  function applyGalleryFilter() {
+    const query = (gallerySearch?.value || '').trim().toLocaleLowerCase();
+    const kind = galleryTypeFilter?.value || 'all';
+    let visibleCount = 0;
+    filterableCards.forEach(card => {
+      const matchesName = !query || (card.dataset.name || '').toLocaleLowerCase().includes(query);
+      const matchesKind = kind === 'all' || card.dataset.itemKind === kind;
+      card.hidden = !(matchesName && matchesKind);
+      if (!card.hidden) visibleCount++;
+    });
+    const filtering = query.length > 0 || kind !== 'all';
+    if (visibleSummary) {
+      visibleSummary.hidden = !filtering;
+      visibleSummary.textContent = `${visibleCount} of ${filterableCards.length} shown`;
+    }
+    if (filterEmpty) filterEmpty.hidden = visibleCount > 0 || !filtering;
+    gallery?.classList.toggle('has-no-filter-results', visibleCount === 0 && filtering);
+    updateSelection();
+  }
+  gallerySearch?.addEventListener('input', applyGalleryFilter);
+  galleryTypeFilter?.addEventListener('change', applyGalleryFilter);
+  clearGalleryFilter?.addEventListener('click', () => {
+    if (gallerySearch) gallerySearch.value = '';
+    if (galleryTypeFilter) galleryTypeFilter.value = 'all';
+    applyGalleryFilter();
+    gallerySearch?.focus();
   });
   updateSelection();
 
@@ -459,6 +529,13 @@
   const viewerProgressDetail = document.querySelector('#viewer-progress-detail');
   const viewerPrevious = document.querySelector('#viewer-previous');
   const viewerNext = document.querySelector('#viewer-next');
+  const viewerCounter = document.querySelector('#viewer-counter');
+  const viewerInfo = document.querySelector('#viewer-info');
+  const viewerInfoType = document.querySelector('#viewer-info-type');
+  const viewerInfoDimensions = document.querySelector('#viewer-info-dimensions');
+  const viewerInfoSize = document.querySelector('#viewer-info-size');
+  const viewerInfoModified = document.querySelector('#viewer-info-modified');
+  const viewerFilmstrip = document.querySelector('#viewer-filmstrip');
   const viewerButtons = [...document.querySelectorAll('[data-viewer-src]')];
   let viewerIsLarge = false;
   let viewerIsOriginal = false;
@@ -468,6 +545,7 @@
   let viewerPlaceholderButton = null;
   let currentViewerIndex = -1;
   let pendingImageClick = null;
+  let suppressGalleryClickUntil = 0;
   const viewerTouchPointers = new Map();
   let viewerTouchGesture = null;
   let viewerPinch = null;
@@ -478,6 +556,9 @@
   let viewerOriginalLoader = null;
   let viewerOriginalRequest = null;
   let viewerOriginalCacheProbe = null;
+  let viewerNeighborPrefetchController = null;
+  let viewerNeighborPrefetchTimer = null;
+  let viewerNeighborPrefetchUsesIdle = false;
   const viewerFullImageCache = new Map();
   const maximumViewerCacheEntries = 4;
   const maximumViewerCacheBytes = 256 * 1024 * 1024;
@@ -610,6 +691,13 @@
 
   function cancelViewerLoads() {
     viewerLoadGeneration++;
+    viewerNeighborPrefetchController?.abort();
+    viewerNeighborPrefetchController = null;
+    if (viewerNeighborPrefetchTimer !== null) {
+      if (viewerNeighborPrefetchUsesIdle && 'cancelIdleCallback' in window) window.cancelIdleCallback(viewerNeighborPrefetchTimer);
+      else clearTimeout(viewerNeighborPrefetchTimer);
+      viewerNeighborPrefetchTimer = null;
+    }
     viewerOriginalRequest?.abort();
     viewerOriginalRequest = null;
     viewerOriginalCacheProbe?.abort();
@@ -688,6 +776,104 @@
     return `${value.toFixed(digits)} ${units[unit]}`;
   }
 
+  function updateViewerChrome(button) {
+    if (viewerCounter) viewerCounter.textContent = `${currentViewerIndex + 1} / ${viewerButtons.length}`;
+    if (viewerInfoType) viewerInfoType.textContent = button.dataset.viewerType || 'Image';
+    if (viewerInfoSize) viewerInfoSize.textContent = button.dataset.viewerSize || '—';
+    if (viewerInfoModified) viewerInfoModified.textContent = button.dataset.viewerModified || '—';
+    if (viewerInfoDimensions) viewerInfoDimensions.textContent = 'Loading…';
+    if (viewerInfo) viewerInfo.open = false;
+  }
+
+  function updateViewerDimensions() {
+    if (!viewerInfoDimensions || !viewerImage?.naturalWidth || !viewerImage?.naturalHeight) return;
+    viewerInfoDimensions.textContent = `${viewerImage.naturalWidth} × ${viewerImage.naturalHeight}`;
+  }
+
+  function renderViewerFilmstrip() {
+    if (!viewerFilmstrip) return;
+    viewerFilmstrip.replaceChildren();
+    if (viewerButtons.length < 2 || currentViewerIndex < 0) {
+      viewerFilmstrip.hidden = true;
+      return;
+    }
+
+    viewerFilmstrip.hidden = false;
+    const maximumItems = 11;
+    const start = Math.max(0, Math.min(currentViewerIndex - Math.floor(maximumItems / 2), viewerButtons.length - maximumItems));
+    const end = Math.min(viewerButtons.length, start + maximumItems);
+    for (let index = start; index < end; index++) {
+      const sourceButton = viewerButtons[index];
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'viewer-filmstrip-item';
+      item.title = sourceButton.dataset.viewerName || `Image ${index + 1}`;
+      item.setAttribute('aria-label', `View ${sourceButton.dataset.viewerName || `image ${index + 1}`}`);
+      if (index === currentViewerIndex) {
+        item.classList.add('active');
+        item.setAttribute('aria-current', 'true');
+      }
+      const image = document.createElement('img');
+      image.alt = '';
+      image.decoding = 'async';
+      image.loading = index === currentViewerIndex ? 'eager' : 'lazy';
+      image.src = sourceButton.dataset.viewerThumbnail;
+      item.append(image);
+      item.addEventListener('click', () => {
+        if (index === currentViewerIndex) return;
+        currentViewerIndex = index;
+        showViewerImage(viewerButtons[currentViewerIndex]);
+      });
+      viewerFilmstrip.append(item);
+    }
+    requestAnimationFrame(() => viewerFilmstrip.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'center' }));
+  }
+
+  function scheduleViewerNeighborPrefetch(generation) {
+    if (viewerButtons.length < 2 || currentViewerIndex < 0 || navigator.connection?.saveData) return;
+    const connectionType = navigator.connection?.effectiveType;
+    if (connectionType === 'slow-2g' || connectionType === '2g') return;
+
+    const run = async () => {
+      viewerNeighborPrefetchTimer = null;
+      if (generation !== viewerLoadGeneration || !dialog?.open) return;
+      const controller = new AbortController();
+      viewerNeighborPrefetchController = controller;
+      const indexes = [
+        (currentViewerIndex + 1) % viewerButtons.length,
+        (currentViewerIndex - 1 + viewerButtons.length) % viewerButtons.length
+      ];
+      for (const index of [...new Set(indexes)]) {
+        if (controller.signal.aborted || generation !== viewerLoadGeneration || !dialog?.open) break;
+        const url = viewerButtons[index].dataset.viewerSrc;
+        if (!url || viewerFullImageCache.has(url)) continue;
+        try {
+          const response = await fetch(url, {
+            signal: controller.signal,
+            credentials: 'same-origin',
+            cache: 'force-cache',
+            priority: 'low'
+          });
+          const size = Number.parseInt(response.headers.get('Content-Length') || '0', 10);
+          if (!response.ok || size > 96 * 1024 * 1024) {
+            await response.body?.cancel();
+            continue;
+          }
+          const blob = await response.blob();
+          if (!controller.signal.aborted && generation === viewerLoadGeneration) rememberViewerOriginal(url, blob);
+        } catch (error) {
+          if (error?.name === 'AbortError') break;
+        }
+      }
+      if (viewerNeighborPrefetchController === controller) viewerNeighborPrefetchController = null;
+    };
+
+    viewerNeighborPrefetchUsesIdle = 'requestIdleCallback' in window;
+    viewerNeighborPrefetchTimer = viewerNeighborPrefetchUsesIdle
+      ? window.requestIdleCallback(run, { timeout: 1200 })
+      : window.setTimeout(run, 500);
+  }
+
   function updateViewerProgress(loaded, total) {
     const hasTotal = Number.isFinite(total) && total > 0;
     const percent = hasTotal ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
@@ -719,6 +905,8 @@
       viewerDisplayingPlaceholder = false;
       viewerPlaceholderButton = null;
       setViewerSize(false);
+      updateViewerDimensions();
+      scheduleViewerNeighborPrefetch(generation);
     }
     return true;
   }
@@ -789,6 +977,8 @@
     const generation = viewerLoadGeneration;
     resetViewerImage();
     viewerName.textContent = button.dataset.viewerName;
+    updateViewerChrome(button);
+    renderViewerFilmstrip();
     viewerImage.alt = button.dataset.viewerName;
     viewerDownload.href = button.dataset.download;
     viewerImage.classList.add('loading');
@@ -867,8 +1057,8 @@
     const canNavigate = viewerButtons.length > 1;
     viewerPrevious.hidden = !canNavigate;
     viewerNext.hidden = !canNavigate;
-    showViewerImage(button);
     dialog.showModal();
+    showViewerImage(button);
   }
 
   function navigateViewer(offset) {
@@ -880,8 +1070,38 @@
   viewerButtons.forEach(button => {
     const input = button.closest('.file-card')?.querySelector('.file-select');
     const index = fileSelects.indexOf(input);
+    let longPressTimer = null;
+    let longPressPoint = null;
+
+    const cancelLongPress = () => {
+      if (longPressTimer) clearTimeout(longPressTimer);
+      longPressTimer = null;
+      longPressPoint = null;
+    };
+    button.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'touch' || index < 0) return;
+      longPressPoint = { x: event.clientX, y: event.clientY };
+      longPressTimer = setTimeout(() => {
+        input.checked = !input.checked;
+        selectionAnchor = index;
+        suppressGalleryClickUntil = Date.now() + 800;
+        updateSelection();
+        if (navigator.vibrate) navigator.vibrate(25);
+        longPressTimer = null;
+      }, 520);
+    });
+    button.addEventListener('pointermove', event => {
+      if (!longPressPoint) return;
+      if (Math.hypot(event.clientX - longPressPoint.x, event.clientY - longPressPoint.y) > 10) cancelLongPress();
+    });
+    button.addEventListener('pointerup', cancelLongPress);
+    button.addEventListener('pointercancel', cancelLongPress);
 
     button.addEventListener('click', event => {
+      if (Date.now() < suppressGalleryClickUntil) {
+        event.preventDefault();
+        return;
+      }
       if (gallery?.classList.contains('list-view')) {
         openViewer(button);
         return;
@@ -889,12 +1109,19 @@
 
       if (event.shiftKey && selectionAnchor !== null && index >= 0) {
         clearTimeout(pendingImageClick);
-        const from = Math.min(selectionAnchor, index);
-        const to = Math.max(selectionAnchor, index);
+        const visibleIndexes = fileSelects
+          .map((item, itemIndex) => item.closest('.gallery-card')?.hidden ? -1 : itemIndex)
+          .filter(itemIndex => itemIndex >= 0);
+        const anchorPosition = visibleIndexes.indexOf(selectionAnchor);
+        const currentPosition = visibleIndexes.indexOf(index);
         if (!event.ctrlKey) fileSelects.forEach(item => item.checked = false);
-        fileSelects.forEach((item, itemIndex) => {
-          if (itemIndex >= from && itemIndex <= to) item.checked = true;
-        });
+        if (anchorPosition >= 0 && currentPosition >= 0) {
+          const from = Math.min(anchorPosition, currentPosition);
+          const to = Math.max(anchorPosition, currentPosition);
+          visibleIndexes.slice(from, to + 1).forEach(itemIndex => fileSelects[itemIndex].checked = true);
+        } else {
+          input.checked = true;
+        }
         selectionAnchor = index;
         updateSelection();
         return;
@@ -922,6 +1149,42 @@
       clearTimeout(pendingImageClick);
       openViewer(button);
     });
+  });
+
+  document.querySelectorAll('.file-card').forEach(card => {
+    if (card.querySelector('.image-button')) return;
+    const input = card.querySelector('.file-select');
+    const index = fileSelects.indexOf(input);
+    if (!input || index < 0) return;
+    let timer = null;
+    let start = null;
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      start = null;
+    };
+    card.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'touch' || event.target.closest('.select-toggle')) return;
+      start = { x: event.clientX, y: event.clientY };
+      timer = setTimeout(() => {
+        input.checked = !input.checked;
+        selectionAnchor = index;
+        suppressGalleryClickUntil = Date.now() + 800;
+        updateSelection();
+        if (navigator.vibrate) navigator.vibrate(25);
+        timer = null;
+      }, 520);
+    });
+    card.addEventListener('pointermove', event => {
+      if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) cancel();
+    });
+    card.addEventListener('pointerup', cancel);
+    card.addEventListener('pointercancel', cancel);
+    card.addEventListener('click', event => {
+      if (Date.now() >= suppressGalleryClickUntil) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
   });
 
   viewerImage?.addEventListener('click', event => {
@@ -1019,7 +1282,20 @@
     const gesture = viewerTouchGesture;
     viewerTouchGesture = null;
     viewerPinch = null;
-    if (!gesture || gesture.moved || gesture.pinched || !gesture.startedOnImage) return;
+    if (!gesture || gesture.pinched || !gesture.startedOnImage) return;
+
+    const swipeX = event.clientX - gesture.startX;
+    const swipeY = event.clientY - gesture.startY;
+    if (gesture.moved
+      && viewerScale <= viewerFitScale + 0.001
+      && viewerButtons.length > 1
+      && Math.abs(swipeX) >= 56
+      && Math.abs(swipeX) > Math.abs(swipeY) * 1.25) {
+      viewerLastTap = null;
+      navigateViewer(swipeX < 0 ? 1 : -1);
+      return;
+    }
+    if (gesture.moved) return;
 
     const now = Date.now();
     const isDoubleTap = viewerLastTap

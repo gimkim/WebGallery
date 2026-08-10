@@ -27,35 +27,73 @@
         : Model.Path;
     var openSharePanelAfterCreate = TempData.Peek("OpenSharePanel") is true;
     var createdShareLinkId = TempData.Peek("CreatedShareLinkId") is int id ? id : (int?)null;
+    var folderCount = Model.Items.Count(item => item.IsDirectory);
+    var imageCount = Model.Items.Count(item => item.IsImage);
+    var otherFileCount = Model.Items.Count(item => !item.IsDirectory && !item.IsImage);
+    var breadcrumbItems = new List<(string Path, string Name)>();
+    if (Model.IsCollectionShare)
+    {
+        breadcrumbItems.Add(("", Model.CollectionName));
+        if (!Model.IsCollectionRoot)
+        {
+            var segmentPath = Model.ShareRootPath;
+            breadcrumbItems.Add((segmentPath, segmentPath.Split('/').Last()));
+            foreach (var segment in breadcrumbTail.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                segmentPath += "/" + segment;
+                breadcrumbItems.Add((segmentPath, segment));
+            }
+        }
+    }
+    else
+    {
+        breadcrumbItems.Add((breadcrumbRootPath, breadcrumbRootName));
+        var segmentPath = breadcrumbRootPath;
+        foreach (var segment in breadcrumbTail.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            segmentPath = string.IsNullOrEmpty(segmentPath) ? segment : segmentPath + "/" + segment;
+            breadcrumbItems.Add((segmentPath, segment));
+        }
+    }
 }
 <section class="gallery-heading">
-    <div>
+    <div class="gallery-location">
         <nav class="breadcrumbs" aria-label="Current location">
-            @if (Model.IsCollectionShare)
+            @for (var index = 0; index < breadcrumbItems.Count; index++)
             {
-                <a href="@BrowseUrl("")">@Model.CollectionName</a>
-                @if (!Model.IsCollectionRoot)
+                if (breadcrumbItems.Count > 4 && index == 1)
                 {
-                    var segmentPath = Model.ShareRootPath;
-                    <span>/</span><a href="@BrowseUrl(segmentPath)">@segmentPath.Split('/').Last()</a>
-                    foreach (var segment in breadcrumbTail.Split('/', StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        segmentPath += "/" + segment;
-                        <span>/</span><a href="@BrowseUrl(segmentPath)">@segment</a>
-                    }
+                    <span>/</span>
+                    <details class="breadcrumb-overflow">
+                        <summary aria-label="Show hidden parent folders">&hellip;</summary>
+                        <div>
+                        @foreach (var hiddenCrumb in breadcrumbItems.Skip(1).Take(breadcrumbItems.Count - 3))
+                        {
+                            <a href="@BrowseUrl(hiddenCrumb.Path)">@hiddenCrumb.Name</a>
+                        }
+                        </div>
+                    </details>
+                    index = breadcrumbItems.Count - 2;
                 }
-            }
-            else
-            {
-                <a href="@BrowseUrl(breadcrumbRootPath)">@breadcrumbRootName</a>
-                var segmentPath = breadcrumbRootPath;
-                foreach (var segment in breadcrumbTail.Split('/', StringSplitOptions.RemoveEmptyEntries))
+                if (index >= breadcrumbItems.Count) break;
+                var crumb = breadcrumbItems[index];
+                if (index > 0) { <span>/</span> }
+                if (index == breadcrumbItems.Count - 1)
                 {
-                    segmentPath = string.IsNullOrEmpty(segmentPath) ? segment : segmentPath + "/" + segment;
-                    <span>/</span><a href="@BrowseUrl(segmentPath)">@segment</a>
+                    <strong aria-current="page">@crumb.Name</strong>
+                }
+                else
+                {
+                    <a href="@BrowseUrl(crumb.Path)">@crumb.Name</a>
                 }
             }
         </nav>
+        <div class="gallery-summary" aria-label="Folder contents">
+            <span>@folderCount folder@(folderCount == 1 ? "" : "s")</span>
+            <span>@imageCount image@(imageCount == 1 ? "" : "s")</span>
+            @if (otherFileCount > 0) { <span>@otherFileCount other file@(otherFileCount == 1 ? "" : "s")</span> }
+            <span id="gallery-visible-summary" hidden></span>
+        </div>
     </div>
     <div class="heading-actions">
         <a class="button download-button" href="@AssetUrl("DownloadFolder", Model.Path)"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>@(Model.IsCollectionRoot ? "Download collection .zip" : "Download folder .zip")</span></a>
@@ -106,21 +144,36 @@
 <input type="hidden" name="token" value="@Model.ShareToken" />
 <input type="hidden" name="currentPath" value="@Model.Path" />
 <section class="gallery-toolbar panel">
-    <div class="sort-group" aria-label="Sort order">
-        <span>Sort by</span>
-        <a class="@(Model.Sort == "name" ? "active" : "")" href="@SortUrl("name")">Name @(Model.Sort == "name" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
-        <a class="@(Model.Sort == "size" ? "active" : "")" href="@SortUrl("size")">Size @(Model.Sort == "size" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
-        <a class="@(Model.Sort == "date" ? "active" : "")" href="@SortUrl("date")">Date @(Model.Sort == "date" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+    <div class="gallery-toolbar-main" data-gallery-toolbar-main>
+        <div class="gallery-discovery-controls">
+            <label class="gallery-search"><span class="sr-only">Search current folder</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><input id="gallery-search" type="search" autocomplete="off" placeholder="Search current folder..." /></label>
+            <label class="gallery-type-filter"><span class="sr-only">Filter item type</span><select id="gallery-type-filter"><option value="all">All items</option><option value="folder">Folders</option><option value="image">Images</option><option value="file">Other files</option></select></label>
+        </div>
+        <div class="sort-group" aria-label="Sort order">
+            <span>Sort by</span>
+            <a class="@(Model.Sort == "name" ? "active" : "")" href="@SortUrl("name")">Name @(Model.Sort == "name" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+            <a class="@(Model.Sort == "size" ? "active" : "")" href="@SortUrl("size")">Size @(Model.Sort == "size" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+            <a class="@(Model.Sort == "date" ? "active" : "")" href="@SortUrl("date")">Date @(Model.Sort == "date" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+            <label class="sort-select"><span class="sr-only">Sort current folder</span><select id="gallery-sort-select">
+                <option value="@SortUrl("name")" selected="@(Model.Sort == "name")">Name @(Model.Sort == "name" && Model.Direction == "desc" ? "↓" : "↑")</option>
+                <option value="@SortUrl("size")" selected="@(Model.Sort == "size")">Size @(Model.Sort == "size" && Model.Direction == "desc" ? "↓" : "↑")</option>
+                <option value="@SortUrl("date")" selected="@(Model.Sort == "date")">Date @(Model.Sort == "date" && Model.Direction == "desc" ? "↓" : "↑")</option>
+            </select></label>
+        </div>
+        <div class="view-controls">
+            <label class="columns-control">Density <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
+            <div class="segmented"><button type="button" data-view="grid" class="active" aria-pressed="true">Grid</button><button type="button" data-view="list" aria-pressed="false">List</button></div>
+        </div>
     </div>
-    <div class="view-controls">
-        @if (hasFiles)
-        {
-            <label class="select-all"><input id="select-all" type="checkbox" /> Select all</label>
-            <button id="download-selected" class="selected-download download-button" type="submit" disabled><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download selected</span> <span id="selected-count">0</span></button>
-        }
-        <label class="columns-control">Per row <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
-        <div class="segmented"><button type="button" data-view="grid" class="active">Grid</button><button type="button" data-view="list">List</button></div>
+    @if (hasFiles)
+    {
+    <div id="selection-toolbar" class="selection-toolbar" hidden>
+        <strong><span id="selected-count">0</span> selected</strong>
+        <label class="select-all"><input id="select-all" type="checkbox" /> Select visible</label>
+        <button id="clear-selection" class="button compact" type="button">Clear</button>
+        <button id="download-selected" class="selected-download download-button" type="submit" disabled><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download selected</span></button>
     </div>
+    }
 </section>
 
 @if (Model.Items.Count == 0)
@@ -130,15 +183,23 @@
 else
 {
     <section id="gallery-items" class="gallery-grid" data-focus-path="@Model.FocusPath" data-initial-columns="@Model.InitialItemsPerRow" data-initial-view="@Model.InitialViewMode" style="--columns:@Model.DefaultItemsPerRow">
+        <div class="gallery-list-header" aria-label="List columns and sort controls">
+            <span></span><span>Preview</span>
+            <a href="@SortUrl("name")">Name @(Model.Sort == "name" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+            <a href="@SortUrl("size")">Size @(Model.Sort == "size" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+            <a class="list-column-modified" href="@SortUrl("date")">Modified @(Model.Sort == "date" ? Model.Direction == "asc" ? "↑" : "↓" : "")</a>
+            <span class="list-column-action">Action</span>
+        </div>
         @if (Model.ParentPath is not null)
         {
-            <a class="gallery-card parent-card" href="@BrowseUrl(Model.ParentPath, focus: Model.Path)"><div class="media folder-media"><span>↩</span></div><div class="item-info"><strong>Back</strong><small>Parent folder</small></div></a>
+            <a class="gallery-card parent-card" data-filter-exempt href="@BrowseUrl(Model.ParentPath, focus: Model.Path)"><span class="list-selection-spacer" aria-hidden="true"></span><div class="media folder-media"><span>↩</span></div><div class="item-info"><strong>Back</strong><small>Parent folder</small></div></a>
         }
         @foreach (var item in Model.Items)
         {
             if (item.IsDirectory)
             {
-                <article class="gallery-card directory-card" data-relative-path="@item.RelativePath" data-name="@item.Name" data-size="0" data-date="@item.ModifiedUtc.UtcTicks">
+                <article class="gallery-card directory-card" data-item-kind="folder" data-relative-path="@item.RelativePath" data-name="@item.Name" data-size="0" data-date="@item.ModifiedUtc.UtcTicks">
+                    <span class="list-selection-spacer" aria-hidden="true"></span>
                     <a class="directory-card-link" href="@BrowseUrl(item.RelativePath)">
                     @if (item.CoverImages.Count > 0)
                     {
@@ -158,17 +219,17 @@ else
                     {
                         <div class="media folder-media"><span class="folder-shape"></span></div>
                     }
-                    <div class="item-info"><strong title="@item.Name">@item.Name</strong><small>Folder</small><small class="list-date">@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small></div>
+                    <div class="item-info"><strong title="@item.Name">@item.Name</strong><small>Folder</small><small class="list-date">@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small><span class="list-folder-action">Open</span></div>
                     </a>
                 </article>
             }
             else
             {
-                <article class="gallery-card file-card" data-name="@item.Name" data-size="@item.Size" data-date="@item.ModifiedUtc.UtcTicks">
+                <article class="gallery-card file-card" data-item-kind="@(item.IsImage ? "image" : "file")" data-name="@item.Name" data-size="@item.Size" data-date="@item.ModifiedUtc.UtcTicks">
                     <label class="select-toggle" title="Select @item.Name"><input class="file-select" type="checkbox" name="paths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label>
                     @if (item.IsImage)
                     {
-                        <button class="media image-button thumbnail-loading" type="button" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-download="@AssetUrl("Download", item.RelativePath)" data-share-audit="@AuditViewUrl(item.RelativePath)">
+                        <button class="media image-button thumbnail-loading" type="button" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-viewer-size="@FormatSize(item.Size)" data-viewer-modified="@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")" data-viewer-type="@(string.IsNullOrEmpty(item.Extension) ? "Image" : item.Extension)" data-download="@AssetUrl("Download", item.RelativePath)" data-share-audit="@AuditViewUrl(item.RelativePath)">
                             <img data-thumbnail-src="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" alt="@item.Name" decoding="async" />
                         </button>
                     }
@@ -178,19 +239,20 @@ else
                     }
                     <div class="item-info">
                         <a class="file-name-download" title="Download @item.Name" href="@AssetUrl("Download", item.RelativePath)">@item.Name</a>
-                        <small>@FormatSize(item.Size)</small>
+                        <small>@FormatSize(item.Size)@(!item.IsImage && !string.IsNullOrEmpty(item.Extension) ? $" · {item.Extension}" : "")</small>
                         <small class="list-date">@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
-                        <a class="download-link" href="@AssetUrl("Download", item.RelativePath)">Download</a>
+                        <a class="download-link" href="@AssetUrl("Download", item.RelativePath)" title="Download @item.Name" aria-label="Download @item.Name"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span class="sr-only">Download</span></a>
                     </div>
                 </article>
             }
         }
     </section>
+    <section id="gallery-filter-empty" class="empty-state gallery-filter-empty" hidden><div class="empty-icon">?</div><h2>No matching items</h2><p>Try a different search or item type.</p><button id="clear-gallery-filter" class="button" type="button">Clear filters</button></section>
 }
 </form>
 
 <dialog id="image-viewer" class="image-viewer">
-    <div class="viewer-bar"><strong id="viewer-name"></strong><div><a id="viewer-download" class="button compact download-button"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download</span></a><button id="viewer-close" class="icon-button" type="button" aria-label="Close">×</button></div></div>
+    <div class="viewer-bar"><div class="viewer-title"><strong id="viewer-name"></strong><span id="viewer-counter"></span></div><div><details id="viewer-info" class="viewer-info"><summary class="button compact">Info</summary><dl><div><dt>Type</dt><dd id="viewer-info-type">—</dd></div><div><dt>Dimensions</dt><dd id="viewer-info-dimensions">—</dd></div><div><dt>File size</dt><dd id="viewer-info-size">—</dd></div><div><dt>Modified</dt><dd id="viewer-info-modified">—</dd></div></dl></details><a id="viewer-download" class="button compact download-button"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download</span></a><button id="viewer-close" class="icon-button" type="button" aria-label="Close">×</button></div></div>
     <button id="viewer-previous" class="viewer-nav viewer-previous" type="button" aria-label="Previous image" title="Previous image (Left arrow)" hidden>‹</button>
     <button id="viewer-next" class="viewer-nav viewer-next" type="button" aria-label="Next image" title="Next image (Right arrow)" hidden>›</button>
     <div class="viewer-stage">
@@ -201,6 +263,7 @@ else
         </div>
         <img id="viewer-image" alt="" />
     </div>
+    <div id="viewer-filmstrip" class="viewer-filmstrip" aria-label="Images in this folder"></div>
 </dialog>
 
 @functions {
