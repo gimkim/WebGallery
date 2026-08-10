@@ -37,15 +37,19 @@ else
     <section class="collection-list">
     @foreach (var collection in Model.Collections)
     {
-        <article class="panel collection-card">
+        var collectionBodyId = $"collection-body-{collection.Id}";
+        var forceExpanded = createdLinkId is not null && collection.ShareLinks.Any(link => link.Id == createdLinkId.Value);
+        <article class="panel collection-card" data-collection-collapsible data-collection-id="@collection.Id" data-force-expanded="@(forceExpanded ? "true" : "false")">
             <header>
                 <div><div class="eyebrow">COLLECTION</div><h2>@collection.Name</h2><p class="muted">@collection.Folders.Count folder@(collection.Folders.Count == 1 ? "" : "s")</p></div>
                 <div class="collection-card-actions">
+                    <button class="button compact collection-collapse-toggle" type="button" data-collection-toggle aria-controls="@collectionBodyId" aria-expanded="@(forceExpanded ? "true" : "false")"><span class="collection-collapse-icon" aria-hidden="true">@(forceExpanded ? "-" : "+")</span><span data-collection-toggle-label>@(forceExpanded ? "Collapse" : "Expand")</span></button>
                     <a class="button compact" asp-action="SelectFolders" asp-route-id="@collection.Id">Add folders</a>
                     <form asp-action="Delete" method="post" data-confirm="Delete this collection and revoke all of its links?"><input type="hidden" name="id" value="@collection.Id" /><button class="danger-text" type="submit">Delete collection</button></form>
                 </div>
             </header>
 
+            <div id="@collectionBodyId" class="collection-card-body" data-collection-body hidden="@(!forceExpanded)">
             <div class="collection-folders">
                 @if (collection.Folders.Count == 0)
                 {
@@ -112,6 +116,7 @@ else
                     <input type="hidden" name="viewMode" value="grid" />
                     <button class="primary" type="submit" disabled="@(collection.Folders.Count == 0)">Create share link</button>
                 </form>
+            </div>
             </div>
         </article>
     }

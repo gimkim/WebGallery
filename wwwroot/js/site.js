@@ -55,6 +55,32 @@
     });
   });
 
+  document.querySelectorAll('[data-collection-collapsible]').forEach(card => {
+    const collectionId = card.dataset.collectionId;
+    const toggle = card.querySelector('[data-collection-toggle]');
+    const body = card.querySelector('[data-collection-body]');
+    const label = toggle?.querySelector('[data-collection-toggle-label]');
+    const icon = toggle?.querySelector('.collection-collapse-icon');
+    if (!collectionId || !toggle || !body) return;
+
+    const storageKey = `gim-collection-expanded-${collectionId}`;
+    const forceExpanded = card.dataset.forceExpanded === 'true';
+    let expanded = forceExpanded || localStorage.getItem(storageKey) === 'true';
+    const render = persist => {
+      body.hidden = !expanded;
+      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      if (label) label.textContent = expanded ? 'Collapse' : 'Expand';
+      if (icon) icon.textContent = expanded ? '-' : '+';
+      card.classList.toggle('collection-collapsed', !expanded);
+      if (persist) localStorage.setItem(storageKey, expanded ? 'true' : 'false');
+    };
+    toggle.addEventListener('click', () => {
+      expanded = !expanded;
+      render(true);
+    });
+    render(forceExpanded);
+  });
+
   const thumbnailStates = new WeakMap();
   const thumbnailImages = [...document.querySelectorAll('img[data-thumbnail-src]')];
   const maximumThumbnailRequests = 12;

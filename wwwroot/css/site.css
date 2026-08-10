@@ -1445,6 +1445,21 @@ select,
 .collection-card h2 {
   margin: 5px 0;
 }
+.collection-card-body {
+  min-width: 0;
+}
+.collection-collapse-toggle {
+  min-width: 104px;
+}
+.collection-collapse-icon {
+  display: inline-block;
+  width: 1em;
+  margin-right: 4px;
+  text-align: center;
+}
+.collection-collapsed > header {
+  align-items: center;
+}
 .collection-folders,
 .collection-share-block {
   display: grid;
