@@ -1398,6 +1398,18 @@ img[data-thumbnail-src].thumbnail-loaded {
   color: var(--muted);
   line-height: 1.45;
 }
+.admin-form-heading {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 16px;
+}
+.admin-form-heading h3,
+.admin-form-heading p {
+  margin: 0;
+}
+.admin-form-heading p {
+  margin-top: 5px;
+}
 .admin-users {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));

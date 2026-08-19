@@ -36,6 +36,8 @@ public static class DatabaseInitializer
         }
 
         var options = scope.ServiceProvider.GetRequiredService<IOptions<GalleryOptions>>().Value;
+        var loginSecuritySettings = scope.ServiceProvider.GetRequiredService<LoginSecuritySettings>();
+        await LoadLoginSecuritySettingsAsync(db, loginSecuritySettings);
         var queueSettings = scope.ServiceProvider.GetRequiredService<ThumbnailQueueSettings>();
         var concurrencySetting = await db.AppSettings.FindAsync("ThumbnailConcurrency");
         var concurrency = ThumbnailQueueSettings.Clamp(options.ThumbnailConcurrency);
@@ -94,6 +96,69 @@ public static class DatabaseInitializer
         }
         if (!await userManager.IsInRoleAsync(admin, AdminRole))
             await userManager.AddToRoleAsync(admin, AdminRole);
+    }
+
+    private static async Task LoadLoginSecuritySettingsAsync(GalleryDbContext db, LoginSecuritySettings runtimeSettings)
+    {
+        var defaults = LoginSecurityOptions.Default;
+        var values = new Dictionary<string, int>
+        {
+            ["LoginDelayAfterFailures"] = defaults.DelayAfterFailures,
+            ["LoginDelayIncrementSeconds"] = defaults.DelayIncrementSeconds,
+            ["LoginUserFailureLimit"] = defaults.UserFailureLimit,
+            ["LoginUserCooldownMinutes"] = (int)defaults.UserCooldown.TotalMinutes,
+            ["LoginIpFailureLimit"] = defaults.IpFailureLimit,
+            ["LoginIpCooldownMinutes"] = (int)defaults.IpCooldown.TotalMinutes
+        };
+        var changed = false;
+        foreach (var key in values.Keys.ToList())
+        {
+            var setting = await db.AppSettings.FindAsync(key);
+            if (setting is null)
+            {
+                db.AppSettings.Add(new AppSetting { Key = key, Value = values[key].ToString() });
+                changed = true;
+            }
+            else if (int.TryParse(setting.Value, out var parsed))
+            {
+                values[key] = parsed;
+            }
+            else
+            {
+                setting.Value = values[key].ToString();
+                changed = true;
+            }
+        }
+
+        if (!LoginSecuritySettings.TryCreate(
+            values["LoginDelayAfterFailures"],
+            values["LoginDelayIncrementSeconds"],
+            values["LoginUserFailureLimit"],
+            values["LoginUserCooldownMinutes"],
+            values["LoginIpFailureLimit"],
+            values["LoginIpCooldownMinutes"],
+            out var options,
+            out _))
+        {
+            options = defaults;
+            foreach (var pair in new Dictionary<string, int>
+            {
+                ["LoginDelayAfterFailures"] = defaults.DelayAfterFailures,
+                ["LoginDelayIncrementSeconds"] = defaults.DelayIncrementSeconds,
+                ["LoginUserFailureLimit"] = defaults.UserFailureLimit,
+                ["LoginUserCooldownMinutes"] = (int)defaults.UserCooldown.TotalMinutes,
+                ["LoginIpFailureLimit"] = defaults.IpFailureLimit,
+                ["LoginIpCooldownMinutes"] = (int)defaults.IpCooldown.TotalMinutes
+            })
+            {
+                var setting = await db.AppSettings.FindAsync(pair.Key);
+                if (setting is null) db.AppSettings.Add(new AppSetting { Key = pair.Key, Value = pair.Value.ToString() });
+                else setting.Value = pair.Value.ToString();
+            }
+            changed = true;
+        }
+        if (changed) await db.SaveChangesAsync();
+        runtimeSettings.Update(options);
     }
 
     private static async Task EnsureShareLinkPresentationColumnsAsync(GalleryDbContext db)

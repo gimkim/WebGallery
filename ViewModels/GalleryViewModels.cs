@@ -144,6 +144,12 @@ public sealed class AdminIndexViewModel
     public string AppTitle { get; init; } = "Gim Gallery";
     public string Theme { get; init; } = "retro";
     public int ThumbnailConcurrency { get; init; } = ThumbnailQueueSettings.DefaultConcurrency;
+    public int LoginDelayAfterFailures { get; init; } = LoginSecuritySettings.DefaultDelayAfterFailures;
+    public int LoginDelayIncrementSeconds { get; init; } = LoginSecuritySettings.DefaultDelayIncrementSeconds;
+    public int LoginUserFailureLimit { get; init; } = LoginSecuritySettings.DefaultUserFailureLimit;
+    public int LoginUserCooldownMinutes { get; init; } = LoginSecuritySettings.DefaultUserCooldownMinutes;
+    public int LoginIpFailureLimit { get; init; } = LoginSecuritySettings.DefaultIpFailureLimit;
+    public int LoginIpCooldownMinutes { get; init; } = LoginSecuritySettings.DefaultIpCooldownMinutes;
 }
 
 public sealed class AdminLogOwnerOptionViewModel

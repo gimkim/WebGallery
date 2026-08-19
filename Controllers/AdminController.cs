@@ -16,7 +16,8 @@ public sealed class AdminController(
     UserManager<ApplicationUser> userManager,
     GalleryDbContext db,
     IOptions<GalleryOptions> galleryOptions,
-    ThumbnailQueueSettings thumbnailQueueSettings) : Controller
+    ThumbnailQueueSettings thumbnailQueueSettings,
+    LoginSecuritySettings loginSecuritySettings) : Controller
 {
     public async Task<IActionResult> Index()
     {
@@ -39,7 +40,20 @@ public sealed class AdminController(
         var concurrency = int.TryParse(concurrencyValue, out var parsedConcurrency)
             ? ThumbnailQueueSettings.Clamp(parsedConcurrency)
             : thumbnailQueueSettings.MaxConcurrency;
-        return View(new AdminIndexViewModel { Users = rows, AppTitle = title, Theme = theme, ThumbnailConcurrency = concurrency });
+        var login = loginSecuritySettings.Current;
+        return View(new AdminIndexViewModel
+        {
+            Users = rows,
+            AppTitle = title,
+            Theme = theme,
+            ThumbnailConcurrency = concurrency,
+            LoginDelayAfterFailures = login.DelayAfterFailures,
+            LoginDelayIncrementSeconds = login.DelayIncrementSeconds,
+            LoginUserFailureLimit = login.UserFailureLimit,
+            LoginUserCooldownMinutes = (int)login.UserCooldown.TotalMinutes,
+            LoginIpFailureLimit = login.IpFailureLimit,
+            LoginIpCooldownMinutes = (int)login.IpCooldown.TotalMinutes
+        });
     }
 
     [HttpGet]
@@ -207,7 +221,16 @@ public sealed class AdminController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> SaveSettings(string appTitle, string theme, int thumbnailConcurrency)
+    public async Task<IActionResult> SaveSettings(
+        string appTitle,
+        string theme,
+        int thumbnailConcurrency,
+        int loginDelayAfterFailures,
+        int loginDelayIncrementSeconds,
+        int loginUserFailureLimit,
+        int loginUserCooldownMinutes,
+        int loginIpFailureLimit,
+        int loginIpCooldownMinutes)
     {
         if (thumbnailConcurrency is < ThumbnailQueueSettings.MinimumConcurrency or > ThumbnailQueueSettings.MaximumConcurrency)
         {
@@ -218,6 +241,19 @@ public sealed class AdminController(
         if (normalizedTheme is null)
         {
             TempData["Error"] = "Theme must be Retro or Modern.";
+            return RedirectToAction(nameof(Index));
+        }
+        if (!LoginSecuritySettings.TryCreate(
+            loginDelayAfterFailures,
+            loginDelayIncrementSeconds,
+            loginUserFailureLimit,
+            loginUserCooldownMinutes,
+            loginIpFailureLimit,
+            loginIpCooldownMinutes,
+            out var loginOptions,
+            out var loginError))
+        {
+            TempData["Error"] = loginError;
             return RedirectToAction(nameof(Index));
         }
         var setting = await db.AppSettings.FindAsync("AppTitle");
@@ -233,10 +269,24 @@ public sealed class AdminController(
             db.AppSettings.Add(new AppSetting { Key = "Theme", Value = normalizedTheme });
         else
             themeSetting.Value = normalizedTheme;
+        await UpsertSettingAsync("LoginDelayAfterFailures", loginDelayAfterFailures);
+        await UpsertSettingAsync("LoginDelayIncrementSeconds", loginDelayIncrementSeconds);
+        await UpsertSettingAsync("LoginUserFailureLimit", loginUserFailureLimit);
+        await UpsertSettingAsync("LoginUserCooldownMinutes", loginUserCooldownMinutes);
+        await UpsertSettingAsync("LoginIpFailureLimit", loginIpFailureLimit);
+        await UpsertSettingAsync("LoginIpCooldownMinutes", loginIpCooldownMinutes);
         await db.SaveChangesAsync();
         thumbnailQueueSettings.Update(thumbnailConcurrency);
+        loginSecuritySettings.Update(loginOptions);
         TempData["Success"] = "System settings saved.";
         return RedirectToAction(nameof(Index));
+    }
+
+    private async Task UpsertSettingAsync(string key, int value)
+    {
+        var setting = await db.AppSettings.FindAsync(key);
+        if (setting is null) db.AppSettings.Add(new AppSetting { Key = key, Value = value.ToString(CultureInfo.InvariantCulture) });
+        else setting.Value = value.ToString(CultureInfo.InvariantCulture);
     }
 
     private static string? NormalizeTheme(string? value) => value?.Trim().ToLowerInvariant() switch

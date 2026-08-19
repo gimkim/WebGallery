@@ -1441,6 +1441,18 @@ img[data-thumbnail-src].thumbnail-loaded {
     will-change: auto;
   }
 }
+.admin-form-heading {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 16px;
+}
+.admin-form-heading h3,
+.admin-form-heading p {
+  margin: 0;
+}
+.admin-form-heading p {
+  margin-top: 5px;
+}
 @media (max-width: 1100px) {
   .gallery-toolbar-main {
     grid-template-columns: minmax(0, 1fr) auto;

@@ -1,6 +1,6 @@
 @model AdminIndexViewModel
 @{ ViewData["Title"] = "Management"; }
-<section class="gallery-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>System and users</h1><p class="muted">Manage the site title, visual theme, user accounts, and each user's root folder.</p></div></section>
+<section class="gallery-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>System and users</h1><p class="muted">Manage site behavior, login protection, user accounts, and each user's root folder.</p></div></section>
 <nav class="management-tabs" aria-label="Management sections"><a class="active" asp-action="Index">System and users</a><a asp-action="Logs">Logs</a></nav>
 
 <section class="panel admin-section">
@@ -9,6 +9,13 @@
         <label>Site title<input name="appTitle" value="@Model.AppTitle" required /></label>
         <label>Theme<select name="theme" required><option value="retro" selected="@(Model.Theme == "retro")">Retro</option><option value="modern" selected="@(Model.Theme == "modern")">Modern</option></select><small>Retro keeps the current pixel-style interface. Modern uses a softer contemporary interface.</small></label>
         <label>Concurrent thumbnail jobs<input name="thumbnailConcurrency" type="number" min="1" max="16" value="@Model.ThumbnailConcurrency" required /><small>Limits CPU-heavy thumbnail generation across the entire server. Recommended: 2–4.</small></label>
+        <div class="admin-form-heading wide"><h3>Login protection</h3><p class="muted">Progressive delays apply by username. Cooldowns block repeated attempts by username and by direct client IP.</p></div>
+        <label>Start delay after<input name="loginDelayAfterFailures" type="number" min="1" max="99" value="@Model.LoginDelayAfterFailures" required /><small>Failed attempts before a short progressive delay begins. Must be lower than the username cooldown threshold.</small></label>
+        <label>Delay increment (seconds)<input name="loginDelayIncrementSeconds" type="number" min="0" max="300" value="@Model.LoginDelayIncrementSeconds" required /><small>Added to the next retry delay after each further failure. Set to 0 to disable progressive delay.</small></label>
+        <label>Username cooldown after<input name="loginUserFailureLimit" type="number" min="2" max="100" value="@Model.LoginUserFailureLimit" required /><small>Failed attempts for the same normalized username before cooldown.</small></label>
+        <label>Username cooldown (minutes)<input name="loginUserCooldownMinutes" type="number" min="1" max="1440" value="@Model.LoginUserCooldownMinutes" required /><small>Also persists real-account lockout in SQLite across application restarts.</small></label>
+        <label>IP cooldown after<input name="loginIpFailureLimit" type="number" min="2" max="100" value="@Model.LoginIpFailureLimit" required /><small>Total failed attempts from one direct client IP before cooldown.</small></label>
+        <label>IP cooldown (minutes)<input name="loginIpCooldownMinutes" type="number" min="1" max="1440" value="@Model.LoginIpCooldownMinutes" required /><small>Slows password spraying across multiple usernames from the same IP.</small></label>
         <button class="primary" type="submit">Save</button>
     </form>
 </section>

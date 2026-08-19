@@ -31,8 +31,8 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
         options.Password.RequireLowercase = true;
         options.Password.RequireNonAlphanumeric = true;
         options.Lockout.AllowedForNewUsers = true;
-        options.Lockout.MaxFailedAccessAttempts = LoginAttemptLimiter.UserFailureLimit;
-        options.Lockout.DefaultLockoutTimeSpan = LoginAttemptLimiter.UserWindow;
+        // AccountController applies the database-backed runtime threshold and duration.
+        options.Lockout.MaxFailedAccessAttempts = int.MaxValue;
         options.User.RequireUniqueEmail = false;
         options.SignIn.RequireConfirmedAccount = false;
     })
@@ -57,6 +57,7 @@ builder.Services.AddSingleton<ThumbnailWorkQueue>();
 builder.Services.AddSingleton<IHostedService>(services => services.GetRequiredService<ThumbnailWorkQueue>());
 builder.Services.AddSingleton<ThumbnailService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton<LoginSecuritySettings>();
 builder.Services.AddSingleton<LoginAttemptLimiter>();
 builder.Services.AddSingleton<InvalidShareTokenLimiter>();
 

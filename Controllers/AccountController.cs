@@ -11,6 +11,7 @@ public sealed class AccountController(
     SignInManager<ApplicationUser> signInManager,
     UserManager<ApplicationUser> userManager,
     LoginAttemptLimiter attemptLimiter,
+    LoginSecuritySettings loginSecuritySettings,
     TimeProvider timeProvider) : Controller
 {
     [AllowAnonymous]
@@ -27,14 +28,13 @@ public sealed class AccountController(
         var cooldown = attemptLimiter.GetCooldown(clientAddress, model.UserName);
         if (cooldown.IsActive) return Cooldown(model, cooldown);
 
-        var result = await signInManager.PasswordSignInAsync(model.UserName, model.Password, model.RememberMe, lockoutOnFailure: true);
+        var result = await signInManager.PasswordSignInAsync(model.UserName, model.Password, model.RememberMe, lockoutOnFailure: false);
         if (result.Succeeded)
         {
             attemptLimiter.Reset(clientAddress, model.UserName);
             return LocalRedirect(string.IsNullOrWhiteSpace(model.ReturnUrl) ? Url.Action("Index", "Gallery")! : model.ReturnUrl);
         }
 
-        cooldown = attemptLimiter.RecordFailure(clientAddress, model.UserName);
         if (result.IsLockedOut)
         {
             var user = await userManager.FindByNameAsync(model.UserName);
@@ -43,6 +43,26 @@ public sealed class AccountController(
             {
                 var identityRetryAfter = end - timeProvider.GetUtcNow();
                 if (identityRetryAfter > cooldown.RetryAfter) cooldown = new LoginCooldown(identityRetryAfter);
+            }
+            return Cooldown(model, cooldown.IsActive ? cooldown : new LoginCooldown(TimeSpan.FromSeconds(1)));
+        }
+
+        cooldown = attemptLimiter.RecordFailure(clientAddress, model.UserName);
+        var failedUser = await userManager.FindByNameAsync(model.UserName);
+        if (failedUser is not null && await userManager.GetLockoutEnabledAsync(failedUser))
+        {
+            var loginOptions = loginSecuritySettings.Current;
+            var accessResult = await userManager.AccessFailedAsync(failedUser);
+            if (accessResult.Succeeded && await userManager.GetAccessFailedCountAsync(failedUser) >= loginOptions.UserFailureLimit)
+            {
+                var lockoutEnd = timeProvider.GetUtcNow() + loginOptions.UserCooldown;
+                var lockoutResult = await userManager.SetLockoutEndDateAsync(failedUser, lockoutEnd);
+                if (lockoutResult.Succeeded)
+                {
+                    await userManager.ResetAccessFailedCountAsync(failedUser);
+                    var identityRetryAfter = lockoutEnd - timeProvider.GetUtcNow();
+                    if (identityRetryAfter > cooldown.RetryAfter) cooldown = new LoginCooldown(identityRetryAfter);
+                }
             }
         }
         if (cooldown.IsActive) return Cooldown(model, cooldown);

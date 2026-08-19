@@ -10,6 +10,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <Compile Include="Program.cs" />
     <Compile Include="..\..\Services\LoginAttemptLimiter.cs" Link="LoginAttemptLimiter.cs" />
+    <Compile Include="..\..\Services\LoginSecuritySettings.cs" Link="LoginSecuritySettings.cs" />
     <Compile Include="..\..\Services\InvalidShareTokenLimiter.cs" Link="InvalidShareTokenLimiter.cs" />
   </ItemGroup>
 </Project>
