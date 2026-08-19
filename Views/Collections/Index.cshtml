@@ -18,7 +18,13 @@
 </section>
 
 <section class="panel collection-density-toolbar">
-    <label class="columns-control">Folders per row <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
+    <div class="columns-control" aria-label="Folder grid density">
+        <span class="columns-control-label">Folders per row</span>
+        <button class="density-step" type="button" data-density-step="-1" aria-label="Show fewer folders per row">−</button>
+        <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" aria-label="Folders per row" />
+        <button class="density-step" type="button" data-density-step="1" aria-label="Show more folders per row">+</button>
+        <output id="columns-value" for="columns">@Model.DefaultItemsPerRow</output>
+    </div>
 </section>
 
 <section class="panel collection-create-panel">

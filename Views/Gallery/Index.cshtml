@@ -161,7 +161,13 @@
             </select></label>
         </div>
         <div class="view-controls">
-            <label class="columns-control">Density <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" /><output id="columns-value">@Model.DefaultItemsPerRow</output></label>
+            <div class="columns-control" aria-label="Grid density">
+                <span class="columns-control-label">Density</span>
+                <button class="density-step" type="button" data-density-step="-1" aria-label="Show fewer items per row">−</button>
+                <input id="columns" type="range" min="2" max="10" value="@Model.DefaultItemsPerRow" aria-label="Items per row" />
+                <button class="density-step" type="button" data-density-step="1" aria-label="Show more items per row">+</button>
+                <output id="columns-value" for="columns">@Model.DefaultItemsPerRow</output>
+            </div>
             <div class="segmented"><button type="button" data-view="grid" class="active" aria-pressed="true">Grid</button><button type="button" data-view="list" aria-pressed="false">List</button></div>
         </div>
     </div>

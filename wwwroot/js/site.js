@@ -17,6 +17,7 @@
   const gallery = document.querySelector('#gallery-items');
   const columns = document.querySelector('#columns');
   const columnsValue = document.querySelector('#columns-value');
+  const densityStepButtons = document.querySelectorAll('[data-density-step]');
   const viewButtons = document.querySelectorAll('[data-view]');
   const collectionFolderGrids = document.querySelectorAll('.collection-folder-grid');
   const collectionList = document.querySelector('.collection-list');
@@ -82,10 +83,21 @@
         grid.style.setProperty('--columns', Math.min(Number(columns.value), folderCount));
       });
       if (columnsValue) columnsValue.textContent = columns.value;
+      densityStepButtons.forEach(button => {
+        const nextValue = Number(columns.value) + Number(button.dataset.densityStep || 0);
+        button.disabled = nextValue < Number(columns.min) || nextValue > Number(columns.max);
+      });
       localStorage.setItem('gim-gallery-columns', columns.value);
       scheduleCollectionLayout();
     };
     columns.addEventListener('input', updateColumns);
+    densityStepButtons.forEach(button => button.addEventListener('click', () => {
+      const step = Number(button.dataset.densityStep || 0);
+      const nextValue = Math.max(Number(columns.min), Math.min(Number(columns.max), Number(columns.value) + step));
+      if (nextValue === Number(columns.value)) return;
+      columns.value = nextValue;
+      columns.dispatchEvent(new Event('input', { bubbles: true }));
+    }));
     updateColumns();
   }
 

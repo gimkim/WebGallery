@@ -23,6 +23,7 @@
 }
 html {
   min-height: 100%;
+  scrollbar-gutter: stable;
   background: var(--bg);
 }
 body {
@@ -335,8 +336,11 @@ a:focus-visible {
 .segmented,
 .columns-control {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
 }
 .sort-group > span {
   color: var(--muted);
@@ -374,13 +378,34 @@ a:focus-visible {
   color: var(--muted);
 }
 .columns-control input {
+  flex: 0 0 105px;
   width: 105px;
   accent-color: var(--accent);
 }
 .columns-control output {
-  width: 1.2rem;
+  display: inline-block;
+  flex: 0 0 2ch;
+  width: 2ch;
   color: var(--text);
   font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.columns-control-label {
+  flex: 0 0 auto;
+}
+.density-step {
+  flex: 0 0 32px;
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px !important;
+  padding: 0 !important;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.density-step:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 .view-controls {
   flex-wrap: wrap;
