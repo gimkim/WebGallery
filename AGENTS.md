@@ -26,7 +26,7 @@ Before changing this project:
 - Source workspace: `C:\Users\tatsa\source\webgallery`. Perform source-code development and keep project documentation here.
 - IIS deployment target: `C:\Web\imagegallery`. This directory is configured as an application under an existing IIS site.
 - Public application URL: `https://gimgim.ddns.net:45570/Gallery`.
-- Private source repository: `https://github.com/gimkim/WebGallery`; the default branch is `main`. Never commit production databases/WAL files, bootstrap credentials, certificates, caches, content, backups, publish trees, or release ZIPs.
+- Public source repository: `https://github.com/gimkim/WebGallery`; the default branch is `main`. Never commit production databases/WAL files, bootstrap credentials, development settings, certificates, caches, content, backups, publish trees, or release ZIPs. Before any future public push, keep the worktree clean and recheck tracked/history filenames plus token/private-key patterns when the change could introduce sensitive material.
 - Do not treat source edits as deployed changes unless the live workspace was explicitly updated and verified.
 - Keep source and deployment roles separate. Do not use the IIS deployment directory as the source-code workspace.
 - A deployment is incomplete until the intended output has been copied to `C:\Web\imagegallery` and the `/Gallery` application has been verified separately.

@@ -4,6 +4,7 @@ publish/
 publish-current/
 release/
 App_Data/
+appsettings.Development.json
 backup/
 logs/
 *.db
