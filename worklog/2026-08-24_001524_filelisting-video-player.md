@@ -51,6 +51,7 @@
 - Live `https://gimgim.ddns.net:45570/Gallery/Account/Login` returned HTTP 200 and referenced the versioned video-player script.
 - Live `/Gallery/js/video-player.js` returned HTTP 200 (78,207 bytes) and contained the MSE pipeline.
 - Confirmed the IIS directory contains neither `app_offline.htm` nor `appsettings.Development.json` after deployment.
+- Public-repository safety check found no tracked database/bootstrap/development-settings/key/publish/backup/ZIP/FFmpeg files and no private-key, GitHub-token, API-key, or client-secret pattern in the source candidate. Implementation commit `4f3ef03` was pushed to `origin/main` and the remote ref matched locally.
 
 ## User-visible result
 
