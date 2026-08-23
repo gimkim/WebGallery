@@ -17,6 +17,8 @@ public static class DatabaseInitializer
         await db.Database.EnsureCreatedAsync();
         await EnsureShareLinkPresentationColumnsAsync(db);
         await EnsureCollectionSchemaAsync(db);
+        await EnsureShareTargetTypeAsync(db);
+        await EnsureUserRootSchemaAsync(db);
         await EnsureShareAuditSchemaAsync(db);
 
         await db.FolderRules
@@ -94,8 +96,116 @@ public static class DatabaseInitializer
                 await File.WriteAllTextAsync(credentialFile, $"UserName: {userName}{Environment.NewLine}Password: {password}{Environment.NewLine}Created: {DateTimeOffset.Now:O}{Environment.NewLine}");
             }
         }
+        if (!await db.UserRoots.AnyAsync(root => root.OwnerUserId == admin.Id))
+        {
+            db.UserRoots.Add(new UserRoot
+            {
+                OwnerUserId = admin.Id,
+                Name = new DirectoryInfo(rootPath).Name,
+                PhysicalPath = rootPath,
+                SortOrder = 0
+            });
+            admin.RootFolder = rootPath;
+            await db.SaveChangesAsync();
+        }
         if (!await userManager.IsInRoleAsync(admin, AdminRole))
             await userManager.AddToRoleAsync(admin, AdminRole);
+    }
+
+    private static async Task EnsureShareTargetTypeAsync(GalleryDbContext db)
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+        try
+        {
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "PRAGMA table_info('ShareLinks')";
+                await using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync()) columns.Add(reader.GetString(1));
+            }
+            if (!columns.Contains("TargetType"))
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = "ALTER TABLE ShareLinks ADD COLUMN TargetType TEXT NOT NULL DEFAULT 'folder'";
+                await command.ExecuteNonQueryAsync();
+            }
+            await using var normalize = connection.CreateCommand();
+            normalize.CommandText = "UPDATE ShareLinks SET TargetType = 'collection' WHERE CollectionId IS NOT NULL AND TargetType <> 'collection'";
+            await normalize.ExecuteNonQueryAsync();
+        }
+        finally { await connection.CloseAsync(); }
+    }
+
+    private static async Task EnsureUserRootSchemaAsync(GalleryDbContext db)
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS UserRoots (
+                    Id INTEGER NOT NULL CONSTRAINT PK_UserRoots PRIMARY KEY AUTOINCREMENT,
+                    OwnerUserId TEXT NOT NULL,
+                    Name TEXT COLLATE NOCASE NOT NULL,
+                    PhysicalPath TEXT COLLATE NOCASE NOT NULL,
+                    SortOrder INTEGER NOT NULL DEFAULT 0,
+                    CreatedAtUtc TEXT NOT NULL,
+                    CONSTRAINT FK_UserRoots_AspNetUsers_OwnerUserId FOREIGN KEY (OwnerUserId) REFERENCES AspNetUsers (Id) ON DELETE CASCADE
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS IX_UserRoots_OwnerUserId_PhysicalPath ON UserRoots (OwnerUserId, PhysicalPath);
+                INSERT OR IGNORE INTO UserRoots (OwnerUserId, Name, PhysicalPath, SortOrder, CreatedAtUtc)
+                SELECT Id,
+                       CASE WHEN instr(replace(RootFolder, '\\', '/'), '/') = 0 THEN RootFolder ELSE rtrim(RootFolder, '\\/') END,
+                       rtrim(RootFolder, '\\/'), 0, strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')
+                FROM AspNetUsers WHERE trim(RootFolder) <> '';
+                """;
+            await command.ExecuteNonQueryAsync();
+
+            var roots = new List<(long Id, string Path)>();
+            await using (var read = connection.CreateCommand())
+            {
+                read.CommandText = "SELECT Id, PhysicalPath FROM UserRoots WHERE trim(Name) = '' OR Name = PhysicalPath";
+                await using var reader = await read.ExecuteReaderAsync();
+                while (await reader.ReadAsync()) roots.Add((reader.GetInt64(0), reader.GetString(1)));
+            }
+            foreach (var root in roots)
+            {
+                var name = new DirectoryInfo(root.Path).Name;
+                if (string.IsNullOrWhiteSpace(name)) name = root.Path;
+                await using var update = connection.CreateCommand();
+                update.CommandText = "UPDATE UserRoots SET Name = $name WHERE Id = $id";
+                var nameParameter = update.CreateParameter(); nameParameter.ParameterName = "$name"; nameParameter.Value = name; update.Parameters.Add(nameParameter);
+                var idParameter = update.CreateParameter(); idParameter.ParameterName = "$id"; idParameter.Value = root.Id; update.Parameters.Add(idParameter);
+                await update.ExecuteNonQueryAsync();
+            }
+
+            await using var migrate = connection.CreateCommand();
+            migrate.CommandText = """
+                UPDATE ShareLinks
+                SET RelativePath = '@root-' || (SELECT Id FROM UserRoots WHERE OwnerUserId = ShareLinks.OwnerUserId ORDER BY SortOrder, Id LIMIT 1)
+                    || CASE WHEN RelativePath = '' THEN '' ELSE '/' || replace(RelativePath, '\\', '/') END
+                WHERE CollectionId IS NULL AND RelativePath NOT LIKE '@root-%'
+                  AND EXISTS (SELECT 1 FROM UserRoots WHERE OwnerUserId = ShareLinks.OwnerUserId);
+                UPDATE CollectionFolders
+                SET RelativePath = '@root-' || (
+                    SELECT UserRoots.Id FROM UserRoots
+                    JOIN Collections ON Collections.OwnerUserId = UserRoots.OwnerUserId
+                    WHERE Collections.Id = CollectionFolders.CollectionId ORDER BY UserRoots.SortOrder, UserRoots.Id LIMIT 1)
+                    || CASE WHEN RelativePath = '' THEN '' ELSE '/' || replace(RelativePath, '\\', '/') END
+                WHERE RelativePath NOT LIKE '@root-%'
+                  AND EXISTS (SELECT 1 FROM Collections JOIN UserRoots ON UserRoots.OwnerUserId = Collections.OwnerUserId WHERE Collections.Id = CollectionFolders.CollectionId);
+                UPDATE FolderRules
+                SET RelativePath = '@root-' || (SELECT Id FROM UserRoots WHERE OwnerUserId = FolderRules.OwnerUserId ORDER BY SortOrder, Id LIMIT 1)
+                    || CASE WHEN RelativePath = '' THEN '' ELSE '/' || replace(RelativePath, '\\', '/') END
+                WHERE RelativePath NOT LIKE '@root-%'
+                  AND EXISTS (SELECT 1 FROM UserRoots WHERE OwnerUserId = FolderRules.OwnerUserId);
+                """;
+            await migrate.ExecuteNonQueryAsync();
+        }
+        finally { await connection.CloseAsync(); }
     }
 
     private static async Task LoadLoginSecuritySettingsAsync(GalleryDbContext db, LoginSecuritySettings runtimeSettings)

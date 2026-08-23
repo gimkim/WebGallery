@@ -1255,6 +1255,7 @@
       continuousUrl:button.dataset.mediaContinuous,subtitleUrl:button.dataset.mediaSubtitle,subtitleProgressUrl:button.dataset.mediaSubtitleProgress};
     button._mediaItem=item;
     button.addEventListener("click",event=>{event.preventDefault();event.stopPropagation(); if(sameMediaItem(item,playerState.item)&&!$("videoPlayer").paused)$("videoPlayer").pause(); else {panel.showModal?.();openPlayer(item);} });
+    if(button.dataset.videoAutoOpen==="true")queueMicrotask(()=>{panel.showModal?.();openPlayer(item);});
   });
   $("audioTrackSelect").addEventListener("change",()=>{rememberMediaTrackSelection(playerState.item,playerState.metadata,true);loadPlayerStream(true);});
   $("subtitleTrackSelect").addEventListener("change",()=>{const item=playerState.item,token=playerState.token,subtitle=$("subtitleTrackSelect").value;rememberMediaTrackSelection(item,playerState.metadata,true);loadSubtitleTrack(item,subtitle,token).catch(error=>{if(error?.name!=="AbortError"&&token===playerState.token){setPlayerPreparing(false);setPlayerStatus(error.message||"Could not load subtitles.");}});});

@@ -21,7 +21,7 @@ public sealed class AdminController(
 {
     public async Task<IActionResult> Index()
     {
-        var users = await userManager.Users.OrderBy(x => x.UserName).ToListAsync();
+        var users = await userManager.Users.Include(x => x.Roots).OrderBy(x => x.UserName).ToListAsync();
         var rows = new List<AdminUserViewModel>();
         foreach (var user in users)
         {
@@ -30,7 +30,8 @@ public sealed class AdminController(
                 Id = user.Id,
                 UserName = user.UserName ?? "",
                 DisplayName = user.DisplayName,
-                RootFolder = user.RootFolder,
+                Roots = user.Roots.OrderBy(root => root.SortOrder).ThenBy(root => root.Id)
+                    .Select(root => new AdminUserRootViewModel { Id = root.Id, Name = root.Name, PhysicalPath = root.PhysicalPath }).ToList(),
                 IsAdmin = await userManager.IsInRoleAsync(user, DatabaseInitializer.AdminRole)
             });
         }
@@ -84,7 +85,9 @@ public sealed class AdminController(
         if (normalizedShareType == "collection")
             query = query.Where(item => item.ShareLink!.CollectionId != null);
         else if (normalizedShareType == "folder")
-            query = query.Where(item => item.ShareLink!.CollectionId == null);
+            query = query.Where(item => item.ShareLink!.TargetType == ShareTargetTypes.Folder);
+        else if (normalizedShareType == "file")
+            query = query.Where(item => item.ShareLink!.TargetType == ShareTargetTypes.File);
         if (!string.IsNullOrEmpty(normalizedClientIp))
         {
             var pattern = $"%{EscapeLikePattern(normalizedClientIp)}%";
@@ -132,9 +135,11 @@ public sealed class AdminController(
                 OccurredAtUtc = item.OccurredAtUtc,
                 EventType = item.EventType,
                 OwnerUserName = item.ShareLink?.Owner?.UserName ?? "Unknown user",
-                ShareType = item.ShareLink?.Collection is null ? "Folder" : "Collection",
+                ShareType = item.ShareLink?.TargetType == ShareTargetTypes.File ? "File" : item.ShareLink?.Collection is null ? "Folder" : "Collection",
                 ShareLabel = item.ShareLink?.Collection?.Name
-                    ?? (string.IsNullOrWhiteSpace(item.ShareLink?.RelativePath) ? "Home" : item.ShareLink.RelativePath.Replace('\\', '/')),
+                    ?? (item.ShareLink?.TargetType == ShareTargetTypes.File
+                        ? Path.GetFileName(item.ShareLink.RelativePath)
+                        : string.IsNullOrWhiteSpace(item.ShareLink?.RelativePath) ? "Home" : item.ShareLink.RelativePath.Replace('\\', '/')),
                 TargetPath = item.TargetPath,
                 Details = item.Details,
                 ItemCount = item.ItemCount,
@@ -160,15 +165,21 @@ public sealed class AdminController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> CreateUser(string userName, string displayName, string rootFolder, string password, bool isAdmin = false)
+    public async Task<IActionResult> CreateUser(string userName, string displayName, string? rootFolder, string password, bool isAdmin = false)
     {
-        if (!TryValidateRoot(rootFolder, out rootFolder, out var rootError))
+        var hasRoot = !string.IsNullOrWhiteSpace(rootFolder);
+        if (hasRoot && !TryValidateRoot(rootFolder!, out rootFolder, out var rootError))
         {
             TempData["Error"] = rootError;
             return RedirectToAction(nameof(Index));
         }
-        var user = new ApplicationUser { UserName = userName.Trim(), DisplayName = displayName.Trim(), RootFolder = rootFolder };
+        var user = new ApplicationUser { UserName = userName.Trim(), DisplayName = displayName.Trim(), RootFolder = hasRoot ? rootFolder! : "" };
         var result = await userManager.CreateAsync(user, password);
+        if (result.Succeeded && hasRoot)
+        {
+            db.UserRoots.Add(new UserRoot { OwnerUserId = user.Id, Name = GetDefaultRootName(rootFolder!), PhysicalPath = rootFolder!, SortOrder = 0 });
+            await db.SaveChangesAsync();
+        }
         if (result.Succeeded && isAdmin) result = await userManager.AddToRoleAsync(user, DatabaseInitializer.AdminRole);
         TempData[result.Succeeded ? "Success" : "Error"] = result.Succeeded ? "User created." : string.Join("; ", result.Errors.Select(x => x.Description));
         return RedirectToAction(nameof(Index));
@@ -176,17 +187,11 @@ public sealed class AdminController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> UpdateUser(string id, string displayName, string rootFolder, bool isAdmin, string? newPassword)
+    public async Task<IActionResult> UpdateUser(string id, string displayName, bool isAdmin, string? newPassword)
     {
         var user = await userManager.FindByIdAsync(id);
         if (user is null) return NotFound();
-        if (!TryValidateRoot(rootFolder, out rootFolder, out var rootError))
-        {
-            TempData["Error"] = rootError;
-            return RedirectToAction(nameof(Index));
-        }
         user.DisplayName = displayName.Trim();
-        user.RootFolder = rootFolder;
         var result = await userManager.UpdateAsync(user);
         if (result.Succeeded)
         {
@@ -201,6 +206,81 @@ public sealed class AdminController(
             result = await userManager.ResetPasswordAsync(user, token, newPassword);
         }
         TempData[result.Succeeded ? "Success" : "Error"] = result.Succeeded ? "User saved." : string.Join("; ", result.Errors.Select(x => x.Description));
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> AddUserRoot(string id, string physicalPath, string? name)
+    {
+        var user = await userManager.FindByIdAsync(id);
+        if (user is null) return NotFound();
+        if (!TryValidateRoot(physicalPath, out physicalPath, out var error))
+        {
+            TempData["Error"] = error;
+            return RedirectToAction(nameof(Index));
+        }
+        if (await db.UserRoots.AnyAsync(root => root.OwnerUserId == id && root.PhysicalPath == physicalPath))
+        {
+            TempData["Error"] = "This folder is already assigned to the user.";
+            return RedirectToAction(nameof(Index));
+        }
+        var sortOrder = await db.UserRoots.Where(root => root.OwnerUserId == id).Select(root => (int?)root.SortOrder).MaxAsync() ?? -1;
+        db.UserRoots.Add(new UserRoot
+        {
+            OwnerUserId = id,
+            Name = NormalizeRootName(name, physicalPath),
+            PhysicalPath = physicalPath,
+            SortOrder = sortOrder + 1
+        });
+        if (string.IsNullOrWhiteSpace(user.RootFolder)) user.RootFolder = physicalPath;
+        await db.SaveChangesAsync();
+        TempData["Success"] = "Folder added.";
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateUserRoot(int rootId, string physicalPath, string? name)
+    {
+        var root = await db.UserRoots.Include(item => item.Owner).SingleOrDefaultAsync(item => item.Id == rootId);
+        if (root is null) return NotFound();
+        if (!TryValidateRoot(physicalPath, out physicalPath, out var error))
+        {
+            TempData["Error"] = error;
+            return RedirectToAction(nameof(Index));
+        }
+        if (await db.UserRoots.AnyAsync(item => item.OwnerUserId == root.OwnerUserId && item.Id != rootId && item.PhysicalPath == physicalPath))
+        {
+            TempData["Error"] = "This folder is already assigned to the user.";
+            return RedirectToAction(nameof(Index));
+        }
+        var oldPath = root.PhysicalPath;
+        root.PhysicalPath = physicalPath;
+        root.Name = NormalizeRootName(name, physicalPath);
+        if (root.Owner is not null && string.Equals(root.Owner.RootFolder, oldPath, StringComparison.OrdinalIgnoreCase))
+            root.Owner.RootFolder = physicalPath;
+        await db.SaveChangesAsync();
+        TempData["Success"] = "Folder saved.";
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RemoveUserRoot(int rootId)
+    {
+        var root = await db.UserRoots.Include(item => item.Owner).SingleOrDefaultAsync(item => item.Id == rootId);
+        if (root is null) return NotFound();
+        var owner = root.Owner;
+        db.UserRoots.Remove(root);
+        await db.SaveChangesAsync();
+        if (owner is not null)
+        {
+            owner.RootFolder = await db.UserRoots.Where(item => item.OwnerUserId == owner.Id)
+                .OrderBy(item => item.SortOrder).ThenBy(item => item.Id).Select(item => item.PhysicalPath).FirstOrDefaultAsync() ?? "";
+            await db.SaveChangesAsync();
+        }
+        TempData["Success"] = "Folder removed from the user. Files were not deleted.";
         return RedirectToAction(nameof(Index));
     }
 
@@ -313,6 +393,7 @@ public sealed class AdminController(
     {
         "folder" => "folder",
         "collection" => "collection",
+        "file" => "file",
         _ => ""
     };
 
@@ -335,6 +416,19 @@ public sealed class AdminController(
     {
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("Root folder is required.");
         return Path.GetFullPath(Environment.ExpandEnvironmentVariables(path.Trim()));
+    }
+
+    private static string GetDefaultRootName(string physicalPath)
+    {
+        var name = new DirectoryInfo(physicalPath).Name;
+        return string.IsNullOrWhiteSpace(name) ? physicalPath : name;
+    }
+
+    private static string NormalizeRootName(string? name, string physicalPath)
+    {
+        var normalized = string.IsNullOrWhiteSpace(name) ? GetDefaultRootName(physicalPath) : name.Trim();
+        if (normalized.Length > 160) normalized = normalized[..160];
+        return normalized;
     }
 
     private static bool TryValidateRoot(string path, out string normalized, out string error)

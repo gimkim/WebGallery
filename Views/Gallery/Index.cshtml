@@ -27,6 +27,7 @@
         : Model.Path;
     var openSharePanelAfterCreate = TempData.Peek("OpenSharePanel") is true;
     var createdShareLinkId = TempData.Peek("CreatedShareLinkId") is int id ? id : (int?)null;
+    var createdFileShareLinkId = TempData.Peek("CreatedFileShareLinkId") is int fileId ? fileId : (int?)null;
     var folderCount = Model.Items.Count(item => item.IsDirectory);
     var imageCount = Model.Items.Count(item => item.IsImage);
     var videoCount = Model.Items.Count(item => item.IsVideo);
@@ -45,6 +46,10 @@
                 breadcrumbItems.Add((segmentPath, segment));
             }
         }
+    }
+    else if (Model.BrowseMode == "private" && Model.Breadcrumbs.Count > 0)
+    {
+        breadcrumbItems.AddRange(Model.Breadcrumbs.Select(item => (item.Path, item.Name)));
     }
     else
     {
@@ -98,8 +103,11 @@
         </div>
     </div>
     <div class="heading-actions">
+        @if (!Model.IsVirtualRoot && !Model.IsFileShare)
+        {
         <a class="button download-button" href="@AssetUrl("DownloadFolder", Model.Path)"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>@(Model.IsCollectionRoot ? "Download collection .zip" : "Download folder .zip")</span></a>
         @if (Model.CanManage) { <button class="button" type="button" data-toggle-panel="share-panel">Share</button> }
+        }
     </div>
 </section>
 
@@ -108,7 +116,7 @@
     <section id="share-panel" class="panel access-panel" data-open-after-create="@(openSharePanelAfterCreate ? "true" : "false")" hidden>
         <div>
             <div class="eyebrow">SHARE LINKS</div>
-            <h2>Share @(string.IsNullOrEmpty(Model.Path) ? "Home" : Model.Path)</h2>
+            <h2>Share @breadcrumbItems.LastOrDefault().Name</h2>
         </div>
         <div class="access-help">
             <p>Every folder is private. Anyone with a share link can access only this folder and its subfolders.</p>
@@ -128,6 +136,24 @@
                     </div>
                 </div>
             }
+            @if (Model.FileShareLinks.Count > 0)
+            {
+                <h3>Shared files in this folder</h3>
+                @foreach (var share in Model.FileShareLinks)
+                {
+                    var link = share.Link;
+                    var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", new { token = link.Token })}";
+                    <div class="share-entry @(link.Id == createdFileShareLinkId ? "share-row-created" : "")">
+                        <strong class="file-share-name">@System.IO.Path.GetFileName(link.RelativePath)</strong>
+                        <div class="share-row">
+                            <input readonly value="@linkUrl" /><button type="button" data-copy="@linkUrl">Copy</button>
+                            <a class="button compact" asp-controller="Collections" asp-action="ShareActivity" asp-route-id="@link.Id">Activity</a>
+                            <form asp-action="RevokeShare" method="post"><input type="hidden" name="id" value="@link.Id" /><input type="hidden" name="path" value="@Model.Path" /><button class="danger-text" type="submit">Revoke</button></form>
+                        </div>
+                        <div class="share-metrics"><span><strong>@share.AccessCount</strong> accesses</span><span><strong>@share.ViewCount</strong> views</span><span><strong>@share.DownloadCount</strong> downloads</span><span><strong>@share.UniqueVisitorCount</strong> visitors</span></div>
+                    </div>
+                }
+            }
             <form asp-action="CreateShare" method="post" data-create-share>
                 <input type="hidden" name="path" value="@Model.Path" />
                 <input type="hidden" name="sort" value="@Model.Sort" />
@@ -145,7 +171,7 @@
 <input type="hidden" name="userName" value="@Model.OwnerUserName" />
 <input type="hidden" name="token" value="@Model.ShareToken" />
 <input type="hidden" name="currentPath" value="@Model.Path" />
-<section class="gallery-toolbar panel">
+<section class="gallery-toolbar panel @(Model.IsFileShare ? "file-share-hidden" : "")">
     <div class="gallery-toolbar-main" data-gallery-toolbar-main>
         <div class="gallery-discovery-controls">
             <label class="gallery-search"><span class="sr-only">Search current folder</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><input id="gallery-search" type="search" autocomplete="off" placeholder="Search current folder..." /></label>
@@ -179,6 +205,7 @@
         <strong><span id="selected-count">0</span> selected</strong>
         <label class="select-all"><input id="select-all" type="checkbox" /> Select visible</label>
         <button id="clear-selection" class="button compact" type="button">Clear</button>
+        @if (Model.CanManage) { <button id="share-selected-file" class="button compact" type="submit" formaction="@Url.Action("CreateFileShare")" hidden>Share file</button> }
         <button id="download-selected" class="selected-download download-button" type="submit" disabled><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download selected</span></button>
     </div>
     }
@@ -186,7 +213,7 @@
 
 @if (Model.Items.Count == 0)
 {
-    <section class="empty-state"><div class="empty-icon">◇</div><h2>This folder is empty</h2><p>Files added to this folder will appear here automatically.</p></section>
+    <section class="empty-state"><div class="empty-icon">◇</div><h2>@(Model.IsVirtualRoot ? "No gallery folders configured" : "This folder is empty")</h2><p>@(Model.IsVirtualRoot ? "An administrator can add one or more folders to this account in Management." : "Files added to this folder will appear here automatically.")</p></section>
 }
 else
 {
@@ -233,17 +260,20 @@ else
             }
             else
             {
-                <article class="gallery-card file-card" data-item-kind="@(item.IsImage ? "image" : item.IsVideo ? "video" : "file")" data-name="@item.Name" data-size="@item.Size" data-date="@item.ModifiedUtc.UtcTicks">
-                    <label class="select-toggle" title="Select @item.Name"><input class="file-select" type="checkbox" name="paths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label>
+                <article class="gallery-card file-card" data-item-kind="@(item.IsImage ? "image" : item.IsVideo ? "video" : "file")" data-shareable="@(item.IsImage || item.IsVideo ? "true" : "false")" data-name="@item.Name" data-size="@item.Size" data-date="@item.ModifiedUtc.UtcTicks">
+                    @if (!Model.IsFileShare)
+                    {
+                        <label class="select-toggle" title="Select @item.Name"><input class="file-select" type="checkbox" name="paths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label>
+                    }
                     @if (item.IsImage)
                     {
-                        <button class="media image-button thumbnail-loading" type="button" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-viewer-size="@FormatSize(item.Size)" data-viewer-modified="@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")" data-viewer-type="@(string.IsNullOrEmpty(item.Extension) ? "Image" : item.Extension)" data-download="@AssetUrl("Download", item.RelativePath)" data-share-audit="@AuditViewUrl(item.RelativePath)">
+                        <button class="media image-button thumbnail-loading" type="button" data-viewer-auto-open="@Model.IsFileShare.ToString().ToLowerInvariant()" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-viewer-size="@FormatSize(item.Size)" data-viewer-modified="@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")" data-viewer-type="@(string.IsNullOrEmpty(item.Extension) ? "Image" : item.Extension)" data-download="@AssetUrl("Download", item.RelativePath)" data-share-audit="@AuditViewUrl(item.RelativePath)">
                             <img data-thumbnail-src="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" alt="@item.Name" decoding="async" />
                         </button>
                     }
                     else if (item.IsVideo)
                     {
-                        <button class="media video-button" type="button" data-video-player data-video-name="@item.Name" data-video-path="@item.RelativePath" data-video-scope="@($"{Model.BrowseMode}:{Model.OwnerUserName}:{Model.ShareToken}")" data-media-metadata="@AssetUrl("MediaMetadata", item.RelativePath)" data-media-stream="@AssetUrl("MediaStream", item.RelativePath)" data-media-segment="@AssetUrl("MediaSegment", item.RelativePath)" data-media-continuous="@AssetUrl("MediaContinuousHevc", item.RelativePath)" data-media-subtitle="@AssetUrl("MediaSubtitle", item.RelativePath)" data-media-subtitle-progress="@AssetUrl("MediaSubtitleProgress", item.RelativePath)" data-media-download="@AssetUrl("Download", item.RelativePath)" aria-label="Play @item.Name" aria-pressed="false"><span class="video-file-icon">@(string.IsNullOrEmpty(item.Extension) ? "VIDEO" : item.Extension)</span><span class="video-play-icon" aria-hidden="true">▶</span></button>
+                        <button class="media video-button" type="button" data-video-player data-video-auto-open="@Model.IsFileShare.ToString().ToLowerInvariant()" data-video-name="@item.Name" data-video-path="@item.RelativePath" data-video-scope="@($"{Model.BrowseMode}:{Model.OwnerUserName}:{Model.ShareToken}")" data-media-metadata="@AssetUrl("MediaMetadata", item.RelativePath)" data-media-stream="@AssetUrl("MediaStream", item.RelativePath)" data-media-segment="@AssetUrl("MediaSegment", item.RelativePath)" data-media-continuous="@AssetUrl("MediaContinuousHevc", item.RelativePath)" data-media-subtitle="@AssetUrl("MediaSubtitle", item.RelativePath)" data-media-subtitle-progress="@AssetUrl("MediaSubtitleProgress", item.RelativePath)" data-media-download="@AssetUrl("Download", item.RelativePath)" aria-label="Play @item.Name" aria-pressed="false"><span class="video-file-icon">@(string.IsNullOrEmpty(item.Extension) ? "VIDEO" : item.Extension)</span><span class="video-play-icon" aria-hidden="true">▶</span></button>
                     }
                     else
                     {

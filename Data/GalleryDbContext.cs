@@ -13,6 +13,7 @@ public sealed class GalleryDbContext(DbContextOptions<GalleryDbContext> options)
     public DbSet<GalleryCollection> Collections => Set<GalleryCollection>();
     public DbSet<GalleryCollectionFolder> CollectionFolders => Set<GalleryCollectionFolder>();
     public DbSet<ShareAuditEvent> ShareAuditEvents => Set<ShareAuditEvent>();
+    public DbSet<UserRoot> UserRoots => Set<UserRoot>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -23,6 +24,7 @@ public sealed class GalleryDbContext(DbContextOptions<GalleryDbContext> options)
         builder.Entity<GalleryCollectionFolder>().HasOne(x => x.Collection).WithMany(x => x.Folders).HasForeignKey(x => x.CollectionId).OnDelete(DeleteBehavior.Cascade);
         builder.Entity<ShareLink>().HasOne(x => x.Collection).WithMany(x => x.ShareLinks).HasForeignKey(x => x.CollectionId).OnDelete(DeleteBehavior.Cascade);
         builder.Entity<ShareAuditEvent>().HasOne(x => x.ShareLink).WithMany(x => x.AuditEvents).HasForeignKey(x => x.ShareLinkId).OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<UserRoot>().HasOne(x => x.Owner).WithMany(x => x.Roots).HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.Cascade);
         builder.Entity<FolderRule>().HasIndex(x => new { x.OwnerUserId, x.RelativePath }).IsUnique();
         builder.Entity<ShareLink>().HasIndex(x => x.Token).IsUnique();
         builder.Entity<GalleryCollection>().HasIndex(x => new { x.OwnerUserId, x.Name }).IsUnique();
@@ -32,6 +34,7 @@ public sealed class GalleryDbContext(DbContextOptions<GalleryDbContext> options)
         builder.Entity<ShareAuditEvent>().HasIndex(x => x.OccurredAtUnixSeconds);
         builder.Entity<ShareAuditEvent>().HasIndex(x => new { x.EventType, x.OccurredAtUnixSeconds });
         builder.Entity<ShareAuditEvent>().HasIndex(x => new { x.ClientIp, x.OccurredAtUnixSeconds });
+        builder.Entity<UserRoot>().HasIndex(x => new { x.OwnerUserId, x.PhysicalPath }).IsUnique();
         builder.Entity<AppSetting>().HasKey(x => x.Key);
         builder.Entity<FolderRule>().Property(x => x.RelativePath).UseCollation("NOCASE");
         builder.Entity<GalleryCollection>().Property(x => x.Name).UseCollation("NOCASE");
@@ -41,5 +44,7 @@ public sealed class GalleryDbContext(DbContextOptions<GalleryDbContext> options)
         builder.Entity<ShareAuditEvent>().Property(x => x.Details).HasMaxLength(4096);
         builder.Entity<ShareAuditEvent>().Property(x => x.ClientIp).HasMaxLength(64);
         builder.Entity<ShareAuditEvent>().Property(x => x.VisitorHash).HasMaxLength(24);
+        builder.Entity<UserRoot>().Property(x => x.Name).UseCollation("NOCASE").HasMaxLength(160);
+        builder.Entity<UserRoot>().Property(x => x.PhysicalPath).UseCollation("NOCASE").HasMaxLength(2048);
     }
 }

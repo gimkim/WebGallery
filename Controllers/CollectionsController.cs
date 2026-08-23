@@ -30,7 +30,7 @@ public sealed class CollectionsController(
             .OrderBy(x => x.Name)
             .ToListAsync();
         var folderShareLinks = await db.ShareLinks
-            .Where(link => link.OwnerUserId == owner.Id && link.CollectionId == null && !link.IsRevoked)
+            .Where(link => link.OwnerUserId == owner.Id && link.CollectionId == null && link.TargetType == ShareTargetTypes.Folder && !link.IsRevoked)
             .ToListAsync();
         folderShareLinks = folderShareLinks.OrderByDescending(link => link.CreatedAtUtc).ToList();
         var allShareLinkIds = collections.SelectMany(collection => collection.ShareLinks).Select(link => link.Id)
@@ -276,7 +276,8 @@ public sealed class CollectionsController(
             Sort = "name",
             Direction = "asc",
             ItemsPerRow = itemsPerRow is >= 2 and <= 10 ? itemsPerRow.Value : options.Value.DefaultItemsPerRow,
-            ViewMode = string.Equals(viewMode, "list", StringComparison.OrdinalIgnoreCase) ? "list" : "grid"
+            ViewMode = string.Equals(viewMode, "list", StringComparison.OrdinalIgnoreCase) ? "list" : "grid",
+            TargetType = ShareTargetTypes.Collection
         };
         db.ShareLinks.Add(link);
         await db.SaveChangesAsync();
@@ -319,8 +320,9 @@ public sealed class CollectionsController(
             .Take(pageSize)
             .ToListAsync();
         var summaries = await shareAudit.GetSummariesAsync([link.Id]);
-        var shareLabel = link.Collection?.Name
-            ?? (string.IsNullOrWhiteSpace(link.RelativePath) ? "Home" : link.RelativePath.Replace('\\', '/'));
+        var shareLabel = link.TargetType == ShareTargetTypes.File
+            ? Path.GetFileName(link.RelativePath)
+            : link.Collection?.Name ?? (string.IsNullOrWhiteSpace(link.RelativePath) ? "Home" : link.RelativePath.Replace('\\', '/'));
         return View(new ShareActivityViewModel
         {
             Link = link,

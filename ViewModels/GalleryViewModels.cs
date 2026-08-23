@@ -15,6 +15,7 @@ public sealed record GalleryItemViewModel(
     IReadOnlyList<ThumbnailSourceViewModel> CoverImages);
 
 public sealed record ThumbnailSourceViewModel(string RelativePath, string CacheStamp);
+public sealed record GalleryBreadcrumbViewModel(string Path, string Name);
 
 public sealed class GalleryViewModel
 {
@@ -37,6 +38,10 @@ public sealed class GalleryViewModel
     public bool IsCollectionShare { get; init; }
     public bool IsCollectionRoot { get; init; }
     public string CollectionName { get; init; } = "";
+    public bool IsVirtualRoot { get; init; }
+    public bool IsFileShare { get; init; }
+    public IReadOnlyList<GalleryBreadcrumbViewModel> Breadcrumbs { get; init; } = [];
+    public IReadOnlyList<ShareLinkManagementViewModel> FileShareLinks { get; init; } = [];
 }
 
 public sealed class CollectionsIndexViewModel
@@ -135,8 +140,15 @@ public sealed class AdminUserViewModel
     public required string Id { get; init; }
     public required string UserName { get; init; }
     public string DisplayName { get; init; } = "";
-    public string RootFolder { get; init; } = "";
+    public required IReadOnlyList<AdminUserRootViewModel> Roots { get; init; }
     public bool IsAdmin { get; init; }
+}
+
+public sealed class AdminUserRootViewModel
+{
+    public int Id { get; init; }
+    public required string Name { get; init; }
+    public required string PhysicalPath { get; init; }
 }
 
 public sealed class AdminIndexViewModel

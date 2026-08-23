@@ -1,9 +1,11 @@
 using WebGallery.Models;
 using WebGallery.ViewModels;
+using WebGallery.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace WebGallery.Services;
 
-public sealed class FileSystemService
+public sealed class FileSystemService(GalleryDbContext? db = null)
 {
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -34,11 +36,28 @@ public sealed class FileSystemService
 
     public string ResolvePath(ApplicationUser owner, string? relativePath)
     {
-        if (string.IsNullOrWhiteSpace(owner.RootFolder))
-            throw new InvalidOperationException("This user does not have a gallery root folder.");
-        var root = Path.GetFullPath(owner.RootFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var relative = NormalizeRelativePath(relativePath);
-        var result = Path.GetFullPath(Path.Combine(root, relative));
+        if (string.IsNullOrEmpty(relative))
+            throw new InvalidOperationException("The gallery home is a virtual folder.");
+
+        string rootPath;
+        string childPath;
+        if (TryParseRootPath(relative, out var rootId, out childPath))
+        {
+            var configuredRoot = Database.UserRoots.AsNoTracking()
+                .SingleOrDefault(root => root.Id == rootId && root.OwnerUserId == owner.Id)
+                ?? throw new DirectoryNotFoundException();
+            rootPath = configuredRoot.PhysicalPath;
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(owner.RootFolder)) throw new DirectoryNotFoundException();
+            rootPath = owner.RootFolder;
+            childPath = relative;
+        }
+
+        var root = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var result = Path.GetFullPath(Path.Combine(root, childPath));
         if (!result.StartsWith(root, StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(result.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("The requested path is outside the gallery root.");
@@ -48,6 +67,7 @@ public sealed class FileSystemService
     public IReadOnlyList<GalleryItemViewModel> List(ApplicationUser owner, string? relativePath, string sort, string direction)
     {
         var normalized = NormalizeRelativePath(relativePath);
+        if (string.IsNullOrEmpty(normalized)) return ListRoots(owner, sort, direction);
         var folder = ResolvePath(owner, normalized);
         if (!Directory.Exists(folder) || (!string.IsNullOrEmpty(normalized) && IsIgnoredFileSystemEntry(folder)))
             throw new DirectoryNotFoundException();
@@ -85,6 +105,7 @@ public sealed class FileSystemService
 
     public static bool IsImage(string extension) => ImageExtensions.Contains(extension);
     public static bool IsVideo(string extension) => VideoExtensions.Contains(extension);
+    public static bool IsVirtualRoot(string? relativePath) => string.IsNullOrWhiteSpace(relativePath);
     public static bool IsIgnoredFileName(string fileName) => IgnoredFileNames.Contains(fileName);
 
     public static bool IsHiddenOrSystem(string path)
@@ -121,6 +142,98 @@ public sealed class FileSystemService
             "",
             GetFolderCoverImages(fullPath, normalized));
     }
+
+    public GalleryItemViewModel? GetFileItem(ApplicationUser owner, string relativePath)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        var fullPath = ResolvePath(owner, normalized);
+        if (!File.Exists(fullPath) || IsIgnoredFileSystemEntry(fullPath)) return null;
+        var info = new FileInfo(fullPath);
+        var extension = info.Extension;
+        return new GalleryItemViewModel(info.Name, normalized.Replace(Path.DirectorySeparatorChar, '/'), false,
+            IsImage(extension), IsVideo(extension), info.Length, info.LastWriteTimeUtc,
+            extension.TrimStart('.').ToUpperInvariant(), []);
+    }
+
+    public string GetPathDisplayName(ApplicationUser owner, string relativePath)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        if (!TryParseRootPath(normalized, out var rootId, out var childPath))
+            return string.IsNullOrEmpty(normalized) ? "Home" : normalized.Split(Path.DirectorySeparatorChar).Last();
+        if (!string.IsNullOrEmpty(childPath)) return childPath.Split(Path.DirectorySeparatorChar).Last();
+        return Database.UserRoots.AsNoTracking().Where(root => root.Id == rootId && root.OwnerUserId == owner.Id)
+            .Select(root => root.Name).SingleOrDefault() ?? "Folder";
+    }
+
+    public IReadOnlyList<(string Path, string Name)> GetBreadcrumbs(ApplicationUser owner, string relativePath)
+    {
+        var normalized = NormalizeRelativePath(relativePath);
+        var result = new List<(string Path, string Name)> { ("", "Home") };
+        if (string.IsNullOrEmpty(normalized)) return result;
+        if (!TryParseRootPath(normalized, out var rootId, out var childPath))
+        {
+            var path = "";
+            foreach (var segment in normalized.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                path = string.IsNullOrEmpty(path) ? segment : Path.Combine(path, segment);
+                result.Add((path.Replace(Path.DirectorySeparatorChar, '/'), segment));
+            }
+            return result;
+        }
+        var marker = RootMarker(rootId);
+        var rootName = Database.UserRoots.AsNoTracking().Where(root => root.Id == rootId && root.OwnerUserId == owner.Id)
+            .Select(root => root.Name).SingleOrDefault() ?? "Folder";
+        result.Add((marker, rootName));
+        var current = marker;
+        foreach (var segment in childPath.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current += "/" + segment;
+            result.Add((current, segment));
+        }
+        return result;
+    }
+
+    public static string RootMarker(int rootId) => $"@root-{rootId}";
+
+    private IReadOnlyList<GalleryItemViewModel> ListRoots(ApplicationUser owner, string sort, string direction)
+    {
+        IEnumerable<GalleryItemViewModel> items = Database.UserRoots.AsNoTracking()
+            .Where(root => root.OwnerUserId == owner.Id)
+            .OrderBy(root => root.SortOrder).ThenBy(root => root.Id)
+            .AsEnumerable()
+            .Select(root =>
+            {
+                var marker = RootMarker(root.Id);
+                var available = Directory.Exists(root.PhysicalPath) && !IsIgnoredFileSystemEntry(root.PhysicalPath);
+                var modified = available ? new DirectoryInfo(root.PhysicalPath).LastWriteTimeUtc : root.CreatedAtUtc;
+                return new GalleryItemViewModel(root.Name, marker, true, false, false, 0,
+                    modified, "", available ? GetFolderCoverImages(root.PhysicalPath, marker) : []);
+            });
+        var descending = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
+        items = sort.ToLowerInvariant() switch
+        {
+            "date" => descending ? items.OrderByDescending(item => item.ModifiedUtc) : items.OrderBy(item => item.ModifiedUtc),
+            _ => descending ? items.OrderByDescending(item => item.Name, StringComparer.CurrentCultureIgnoreCase) : items.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+        };
+        return items.ToList();
+    }
+
+    private static bool TryParseRootPath(string relativePath, out int rootId, out string childPath)
+    {
+        var segments = relativePath.Split(Path.DirectorySeparatorChar, 2, StringSplitOptions.RemoveEmptyEntries);
+        var marker = segments.FirstOrDefault() ?? "";
+        if (!marker.StartsWith("@root-", StringComparison.OrdinalIgnoreCase)
+            || !int.TryParse(marker[6..], out rootId) || rootId <= 0)
+        {
+            rootId = 0;
+            childPath = "";
+            return false;
+        }
+        childPath = segments.Length > 1 ? segments[1] : "";
+        return true;
+    }
+
+    private GalleryDbContext Database => db ?? throw new InvalidOperationException("A database context is required for configured gallery roots.");
 
     private static IReadOnlyList<ThumbnailSourceViewModel> GetFolderCoverImages(string folderPath, string folderRelativePath)
     {

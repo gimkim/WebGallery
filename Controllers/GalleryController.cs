@@ -52,6 +52,13 @@ public sealed class GalleryController(
             .SingleOrDefaultAsync(x => x.Token == token && !x.IsRevoked);
         if (link?.Owner is null) return InvalidShareToken(clientAddress);
         var order = ResolveSortOrder(sort, dir);
+        if (link.TargetType == ShareTargetTypes.File)
+        {
+            if (!string.IsNullOrWhiteSpace(path)) return NotFound();
+            var fileResult = await RenderFileShareAsync(link);
+            if (fileResult is ViewResult) await shareAudit.RecordAsync(link, ShareAuditEventTypes.Access, link.RelativePath);
+            return fileResult;
+        }
         if (link.Collection is not null)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -107,6 +114,7 @@ public sealed class GalleryController(
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
         var normalized = files.NormalizeRelativePath(path);
+        if (string.IsNullOrEmpty(normalized)) return BadRequest();
         var resolved = files.ResolvePath(owner, normalized);
         if (!Directory.Exists(resolved) || (!string.IsNullOrEmpty(normalized) && FileSystemService.IsIgnoredFileSystemEntry(resolved))) return NotFound();
         var normalizedSort = NormalizeSort(sort) ?? "name";
@@ -119,7 +127,8 @@ public sealed class GalleryController(
             Sort = normalizedSort,
             Direction = normalizedDirection,
             ItemsPerRow = NormalizeItemsPerRow(itemsPerRow) ?? options.Value.DefaultItemsPerRow,
-            ViewMode = NormalizeViewMode(viewMode) ?? "grid"
+            ViewMode = NormalizeViewMode(viewMode) ?? "grid",
+            TargetType = ShareTargetTypes.Folder
         };
         db.ShareLinks.Add(shareLink);
         await db.SaveChangesAsync();
@@ -127,6 +136,43 @@ public sealed class GalleryController(
         TempData["OpenSharePanel"] = true;
         TempData["CreatedShareLinkId"] = shareLink.Id;
         return RedirectToAction(nameof(Index), new { path = normalized, sort = normalizedSort, dir = normalizedDirection });
+    }
+
+    [Authorize]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateFileShare(string? currentPath, string[] paths)
+    {
+        var owner = await userManager.GetUserAsync(User);
+        if (owner is null) return Challenge();
+        var selected = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (selected.Count != 1)
+        {
+            TempData["Error"] = "Select exactly one image or video to create a file share link.";
+            return RedirectToAction(nameof(Index), new { path = currentPath });
+        }
+        var normalized = files.NormalizeRelativePath(selected[0]).Replace(Path.DirectorySeparatorChar, '/');
+        var item = files.GetFileItem(owner, normalized);
+        if (item is null || (!item.IsImage && !item.IsVideo)) return NotFound();
+        var normalizedCurrent = files.NormalizeRelativePath(currentPath).Replace(Path.DirectorySeparatorChar, '/');
+        if (!string.Equals(FileSystemService.GetParent(normalized), normalizedCurrent, StringComparison.OrdinalIgnoreCase)) return NotFound();
+        var link = new ShareLink
+        {
+            OwnerUserId = owner.Id,
+            RelativePath = normalized,
+            Token = CreateToken(),
+            TargetType = ShareTargetTypes.File,
+            Sort = "name",
+            Direction = "asc",
+            ItemsPerRow = options.Value.DefaultItemsPerRow,
+            ViewMode = "grid"
+        };
+        db.ShareLinks.Add(link);
+        await db.SaveChangesAsync();
+        TempData["Success"] = "File share link created.";
+        TempData["OpenSharePanel"] = true;
+        TempData["CreatedFileShareLinkId"] = link.Id;
+        return RedirectToAction(nameof(Index), new { path = normalizedCurrent });
     }
 
     [Authorize]
@@ -429,10 +475,15 @@ public sealed class GalleryController(
             var normalized = files.NormalizeRelativePath(path);
             var rows = files.List(owner, normalized, sort, dir);
             IReadOnlyList<ShareLink> links = canManage
-                ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && x.CollectionId == null && x.RelativePath == normalized && !x.IsRevoked).ToListAsync())
+                ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && x.CollectionId == null && x.TargetType == ShareTargetTypes.Folder && x.RelativePath == normalized && !x.IsRevoked).ToListAsync())
                     .OrderByDescending(x => x.CreatedAtUtc).ToList()
                 : [];
-            var shareSummaries = await shareAudit.GetSummariesAsync(links.Select(link => link.Id));
+            IReadOnlyList<ShareLink> fileLinks = canManage
+                ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && x.TargetType == ShareTargetTypes.File && !x.IsRevoked).ToListAsync())
+                    .Where(link => string.Equals(FileSystemService.GetParent(link.RelativePath), normalized.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(link => link.CreatedAtUtc).ToList()
+                : [];
+            var shareSummaries = await shareAudit.GetSummariesAsync(links.Concat(fileLinks).Select(link => link.Id));
             var normalizedShareRoot = files.NormalizeRelativePath(shareRootPath).Replace('\\', '/');
             var normalizedPath = normalized.Replace('\\', '/');
             var parentPath = FileSystemService.GetParent(normalized);
@@ -459,13 +510,42 @@ public sealed class GalleryController(
                 InitialViewMode = initialViewMode,
                 Items = rows,
                 ShareLinks = links.Select(link => CreateShareManagementModel(link, shareSummaries)).ToList(),
+                FileShareLinks = fileLinks.Select(link => CreateShareManagementModel(link, shareSummaries)).ToList(),
                 IsCollectionShare = collection is not null,
-                CollectionName = collection?.Name ?? ""
+                CollectionName = collection?.Name ?? "",
+                IsVirtualRoot = mode == "private" && FileSystemService.IsVirtualRoot(normalized),
+                Breadcrumbs = mode == "private"
+                    ? files.GetBreadcrumbs(owner, normalized).Select(item => new GalleryBreadcrumbViewModel(item.Path, item.Name)).ToList()
+                    : []
             };
             return View("Index", model);
         }
         catch (DirectoryNotFoundException) { return NotFound(); }
         catch (UnauthorizedAccessException) { return NotFound(); }
+    }
+
+    private IActionResult RenderFileShare(ShareLink link, GalleryItemViewModel item) => View("Index", new GalleryViewModel
+    {
+        Title = item.Name,
+        OwnerUserName = link.Owner?.UserName ?? "",
+        Path = item.RelativePath,
+        ParentPath = null,
+        BrowseMode = "share",
+        ShareToken = link.Token,
+        ShareRootPath = item.RelativePath,
+        CanManage = false,
+        DefaultItemsPerRow = 2,
+        InitialItemsPerRow = 2,
+        InitialViewMode = "grid",
+        Items = [item],
+        IsFileShare = true,
+        Breadcrumbs = [new GalleryBreadcrumbViewModel(item.RelativePath, item.Name)]
+    });
+
+    private Task<IActionResult> RenderFileShareAsync(ShareLink link)
+    {
+        var item = link.Owner is null ? null : files.GetFileItem(link.Owner, link.RelativePath);
+        return Task.FromResult(item is null || (!item.IsImage && !item.IsVideo) ? (IActionResult)NotFound() : RenderFileShare(link, item));
     }
 
     private async Task<IActionResult> RenderCollectionRootAsync(
@@ -597,7 +677,11 @@ public sealed class GalleryController(
                 shareLink = link;
                 if (link.Collection is null)
                 {
-                    if (!FileSystemService.IsWithinShareScope(link.RelativePath, normalized)) return null;
+                    if (link.TargetType == ShareTargetTypes.File)
+                    {
+                        if (!string.Equals(link.RelativePath.Replace('\\', '/'), normalized.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)) return null;
+                    }
+                    else if (!FileSystemService.IsWithinShareScope(link.RelativePath, normalized)) return null;
                 }
                 else if (FindCollectionRoot(link.Collection, normalized) is null) return null;
                 owner = link.Owner;
@@ -605,6 +689,7 @@ public sealed class GalleryController(
             default: return null;
         }
         if (owner is null) return null;
+        if (string.IsNullOrEmpty(normalized)) return null;
         var resolved = files.ResolvePath(owner, normalized);
         if (!string.IsNullOrEmpty(normalized) && FileSystemService.IsIgnoredFileSystemEntry(resolved)) return null;
         if (requireFile ? !System.IO.File.Exists(resolved) : !Directory.Exists(resolved)) return null;

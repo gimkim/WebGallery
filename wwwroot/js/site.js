@@ -437,6 +437,7 @@
   const selectionToolbar = document.querySelector('#selection-toolbar');
   const galleryToolbarMain = document.querySelector('[data-gallery-toolbar-main]');
   const clearSelection = document.querySelector('#clear-selection');
+  const shareSelectedFile = document.querySelector('#share-selected-file');
   const visibleSummary = document.querySelector('#gallery-visible-summary');
   const filterEmpty = document.querySelector('#gallery-filter-empty');
   const clearGalleryFilter = document.querySelector('#clear-gallery-filter');
@@ -450,6 +451,10 @@
     if (selectedCount) selectedCount.textContent = count;
     if (selectedButton) selectedButton.disabled = count === 0;
     if (selectionToolbar) selectionToolbar.hidden = count === 0;
+    if (shareSelectedFile) {
+      const selectedInput = count === 1 ? fileSelects.find(input => input.checked) : null;
+      shareSelectedFile.hidden = !selectedInput || selectedInput.closest('.file-card')?.dataset.shareable !== 'true';
+    }
     if (galleryToolbarMain) galleryToolbarMain.hidden = count > 0;
     galleryToolbar?.classList.toggle('selection-active', count > 0);
     if (selectAll) {
@@ -529,6 +534,10 @@
   document.querySelectorAll('form[data-confirm]').forEach(form => form.addEventListener('submit', event => {
     if (!confirm(form.dataset.confirm)) event.preventDefault();
   }));
+  document.addEventListener('submit', event => {
+    const message = event.submitter?.dataset.confirm;
+    if (message && !confirm(message)) event.preventDefault();
+  });
 
   const dialog = document.querySelector('#image-viewer');
   const viewerImage = document.querySelector('#viewer-image');
@@ -1162,6 +1171,9 @@
       openViewer(button);
     });
   });
+
+  const autoViewerButton = viewerButtons.find(button => button.dataset.viewerAutoOpen === 'true');
+  if (autoViewerButton) queueMicrotask(() => openViewer(autoViewerButton));
 
   document.querySelectorAll('.file-card').forEach(card => {
     if (card.querySelector('.image-button')) return;

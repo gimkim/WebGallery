@@ -1,6 +1,6 @@
 # Gim Gallery
 
-ASP.NET Core 10 gallery for filesystem-backed image and video collections. SQLite stores users, roles, unlisted share links, collections, audit logs, and system settings. Original files remain on disk; WebP thumbnails are generated into a separate cache. Video playback uses FFmpeg/ffprobe with direct H.264/HEVC streaming where supported and on-demand transcoding fallback.
+ASP.NET Core 10 gallery for filesystem-backed image and video collections. Administrators can assign zero or more named filesystem roots to each user; those roots appear as folders on that user's private home. SQLite stores users, roots, roles, revocable folder/file/collection share links, collections, audit logs, and system settings. Original files remain on disk; WebP thumbnails are generated into a separate cache. Single-image and single-video links open directly in the existing full viewer while remaining scoped to exactly that file. Video playback uses FFmpeg/ffprobe with direct H.264/HEVC streaming where supported and on-demand transcoding fallback.
 
 ## Workspaces
 

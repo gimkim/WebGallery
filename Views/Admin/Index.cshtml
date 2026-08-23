@@ -1,6 +1,6 @@
 @model AdminIndexViewModel
 @{ ViewData["Title"] = "Management"; }
-<section class="gallery-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>System and users</h1><p class="muted">Manage site behavior, login protection, user accounts, and each user's root folder.</p></div></section>
+<section class="gallery-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>System and users</h1><p class="muted">Manage site behavior, login protection, user accounts, and each user's gallery folders.</p></div></section>
 <nav class="management-tabs" aria-label="Management sections"><a class="active" asp-action="Index">System and users</a><a asp-action="Logs">Logs</a></nav>
 
 <section class="panel admin-section">
@@ -25,7 +25,7 @@
     <form asp-action="CreateUser" method="post" class="admin-grid-form">
         <label>Username<input name="userName" required /></label>
         <label>Display name<input name="displayName" required /></label>
-        <label class="wide">Root folder<input name="rootFolder" placeholder="D:\Photos\Somchai" required /></label>
+        <label class="wide">Initial folder (optional)<input name="rootFolder" placeholder="D:\Photos\Somchai" /><small>You can add more folders after creating the account.</small></label>
         <label>Password<input name="password" type="password" minlength="10" required /></label>
         <label class="check"><input name="isAdmin" type="checkbox" value="true" /> Admin</label>
         <button class="primary" type="submit">Create user</button>
@@ -40,11 +40,33 @@
             <form asp-action="UpdateUser" method="post" class="stack-form">
                 <input type="hidden" name="id" value="@user.Id" />
                 <label>Display name<input name="displayName" value="@user.DisplayName" required /></label>
-                <label>Root folder<input name="rootFolder" value="@user.RootFolder" required /></label>
                 <label>New password<input name="newPassword" type="password" minlength="10" placeholder="Leave blank to keep the current password" /></label>
                 <label class="check"><input name="isAdmin" type="checkbox" value="true" checked="@user.IsAdmin" /> Admin</label>
                 <button class="primary" type="submit">Save</button>
             </form>
+            <section class="admin-user-roots" aria-label="Gallery folders for @user.UserName">
+                <div class="admin-user-roots-heading"><h3>Gallery folders</h3><span class="collection-count-badge">@user.Roots.Count</span></div>
+                @if (user.Roots.Count == 0)
+                {
+                    <div class="admin-root-empty"><span aria-hidden="true">◇</span><div><strong>No folders configured</strong><small>This user's Gallery home will be empty until a folder is added.</small></div></div>
+                }
+                @foreach (var root in user.Roots)
+                {
+                    <form asp-action="UpdateUserRoot" method="post" class="admin-root-row">
+                        <input type="hidden" name="rootId" value="@root.Id" />
+                        <label>Folder name<input name="name" value="@root.Name" maxlength="160" required /></label>
+                        <label class="admin-root-path">Physical path<input name="physicalPath" value="@root.PhysicalPath" required /></label>
+                        <button class="button compact" type="submit">Save folder</button>
+                        <button class="danger-text" type="submit" formaction="@Url.Action("RemoveUserRoot")" formmethod="post" data-confirm="Remove @root.Name from @user.UserName? Files will not be deleted.">Remove</button>
+                    </form>
+                }
+                <form asp-action="AddUserRoot" method="post" class="admin-root-add">
+                    <input type="hidden" name="id" value="@user.Id" />
+                    <label>Folder name<input name="name" maxlength="160" placeholder="Optional label" /></label>
+                    <label class="admin-root-path">Physical path<input name="physicalPath" placeholder="D:\Photos\@user.UserName" required /></label>
+                    <button class="button compact" type="submit">Add folder</button>
+                </form>
+            </section>
             <form asp-action="DeleteUser" method="post" data-confirm="Delete @user.UserName? Files will not be deleted."><input type="hidden" name="id" value="@user.Id" /><button class="danger-text" type="submit">Delete account</button></form>
         </article>
     }
