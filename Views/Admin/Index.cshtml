@@ -64,15 +64,17 @@
                         <input type="hidden" name="rootId" value="@root.Id" />
                         <label>Folder name<input name="name" value="@root.Name" maxlength="160" required /></label>
                         <label class="admin-root-path">Physical path<input name="physicalPath" value="@root.PhysicalPath" required /></label>
-                        <button class="button compact" type="submit">Save folder</button>
-                        <button class="danger-text" type="submit" formaction="@Url.Action("RemoveUserRoot")" formmethod="post" data-confirm="Remove @root.Name from @user.UserName? Files will not be deleted.">Remove</button>
+                        <div class="admin-root-actions">
+                            <button class="button compact" type="submit">Save folder</button>
+                            <button class="danger-text" type="submit" formaction="@Url.Action("RemoveUserRoot")" formmethod="post" data-confirm="Remove @root.Name from @user.UserName? Files will not be deleted.">Remove</button>
+                        </div>
                     </form>
                 }
                 <form asp-action="AddUserRoot" method="post" class="admin-root-add">
                     <input type="hidden" name="id" value="@user.Id" />
                     <label>Folder name<input name="name" maxlength="160" placeholder="Optional label" /></label>
                     <label class="admin-root-path">Physical path<input name="physicalPath" placeholder="D:\Photos\@user.UserName" required /></label>
-                    <button class="button compact" type="submit">Add folder</button>
+                    <div class="admin-root-actions"><button class="button compact" type="submit">Add folder</button></div>
                 </form>
             </section>
             <form asp-action="DeleteUser" method="post" data-confirm="Delete @user.UserName? Files will not be deleted."><input type="hidden" name="id" value="@user.Id" /><button class="danger-text" type="submit">Delete account</button></form>
