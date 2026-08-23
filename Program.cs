@@ -56,6 +56,7 @@ builder.Services.AddSingleton(_ => new ThumbnailQueueSettings(
 builder.Services.AddSingleton<ThumbnailWorkQueue>();
 builder.Services.AddSingleton<IHostedService>(services => services.GetRequiredService<ThumbnailWorkQueue>());
 builder.Services.AddSingleton<ThumbnailService>();
+builder.Services.AddSingleton<MediaService>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<LoginSecuritySettings>();
 builder.Services.AddSingleton<LoginAttemptLimiter>();

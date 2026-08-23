@@ -11,12 +11,16 @@ Prerequisites
    Windows Features.
 2. After IIS is enabled, install the latest supported .NET 10 Hosting Bundle.
 3. Restart Windows or restart IIS after installing the Hosting Bundle.
+4. Download a current 64-bit full FFmpeg build and place ffmpeg.exe and
+   ffprobe.exe in C:\Web\imagegallery-tools. The full build is required for
+   H.264 software fallback and optional NVIDIA/Intel hardware acceleration.
 
 Recommended folders
 -------------------
 Application:  C:\Web\imagegallery
 Database/cache/keys: C:\Web\imagegallery-data
 Default images: C:\Web\gallery-content
+Video tools: C:\Web\imagegallery-tools
 
 Extract this ZIP directly into C:\Web\imagegallery. The WebGallery.dll and
 web.config files must be directly inside that folder, not one folder deeper.
@@ -40,9 +44,11 @@ if a different application-pool name is used.
   New-Item -ItemType Directory -Force C:\Web\imagegallery-data | Out-Null
   New-Item -ItemType Directory -Force C:\Web\imagegallery-data\keys | Out-Null
   New-Item -ItemType Directory -Force C:\Web\gallery-content | Out-Null
+  New-Item -ItemType Directory -Force C:\Web\imagegallery-tools | Out-Null
   icacls C:\Web\imagegallery /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(RX)"
   icacls C:\Web\imagegallery-data /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(M)"
   icacls C:\Web\gallery-content /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(RX)"
+  icacls C:\Web\imagegallery-tools /grant "IIS AppPool\WebGalleryPool:(OI)(CI)(RX)"
 
 Grant Read & Execute only to any other user gallery roots. A OneDrive-backed
 root must be marked Always keep on this device.
@@ -63,6 +69,9 @@ Configuration
 appsettings.json currently uses the recommended paths above. Edit its Gallery
 and ConnectionStrings:Gallery values before first start if different paths are
 required.
+
+Gallery:FfmpegPath and Gallery:FfprobePath point to the external video tools.
+The application does not package or update those third-party executables.
 
 For HTTPS/public access, configure the IIS site binding, certificate, DNS,
 firewall, and router or tunnel separately. Do not expose this application over

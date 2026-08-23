@@ -8,6 +8,7 @@ public sealed record GalleryItemViewModel(
     string RelativePath,
     bool IsDirectory,
     bool IsImage,
+    bool IsVideo,
     long Size,
     DateTimeOffset ModifiedUtc,
     string Extension,

@@ -2207,3 +2207,25 @@ img[data-thumbnail-src].thumbnail-loaded {
     margin-left: 0;
   }
 }
++
+.video-button{position:relative;display:grid;place-items:center;width:100%;border:0;background:var(--page,#080b12);color:var(--text);cursor:pointer;overflow:hidden}
+.video-file-icon{font-size:clamp(.75rem,1.1vw,1rem);opacity:.65}
+.video-play-icon{position:absolute;display:grid;place-items:center;width:3.25rem;height:3.25rem;padding-left:.2rem;border:2px solid currentColor;border-radius:50%;color:var(--accent,#20dff2);background:rgba(0,0,0,.62);font-size:1.4rem}
+.video-button:hover .video-play-icon,.video-button.is-playing .video-play-icon{transform:scale(1.08);color:var(--text)}
+.player-panel{position:fixed;inset:2vh 2vw;z-index:1200;width:96vw;height:96dvh;max-width:none;max-height:none;margin:0;padding:12px;border:1px solid var(--line);background:#07090d;color:var(--text)}
+.player-panel::backdrop{background:rgba(0,0,0,.82)}
+.player-panel.hidden{display:none}
+.player-panel[open]{display:flex;flex-direction:column}
+.player-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);padding-bottom:9px;margin-bottom:10px}
+.player-head strong{display:block;color:var(--accent,#20dff2);font-size:.9rem;overflow-wrap:anywhere}.player-head span{display:block;color:var(--muted);font-size:.68rem;margin-top:4px}.player-head-actions{display:flex;gap:7px;align-items:center;flex:0 0 auto}
+.player-stage{position:relative;flex:1 1 auto;width:100%;min-height:0;overflow:hidden;background:#000;border:1px solid var(--line)}
+.video-player{display:block;width:100%;height:100%;object-fit:contain;background:#000;border:0}
+.video-player::cue{color:#fff;opacity:.84;background:transparent;font-family:"Segoe UI",Arial,sans-serif;font-size:var(--subtitle-font-size,100%);font-weight:700;text-shadow:-2px -2px 0 #000,0 -2px 0 #000,2px -2px 0 #000,-2px 0 0 #000,2px 0 0 #000,-2px 2px 0 #000,0 2px 0 #000,2px 2px 0 #000,0 3px 6px rgba(0,0,0,.9)}
+.player-preparing{position:absolute;inset:0;z-index:4;display:grid;place-items:center;padding:24px;cursor:progress;background:radial-gradient(circle at center,rgba(24,32,42,.96),rgba(5,7,10,.985) 68%);text-align:center}.player-preparing.hidden{display:none}
+.player-preparing-content{display:grid;justify-items:center;gap:18px;width:min(520px,100%);padding:30px 22px;border:1px solid var(--line);background:rgba(8,11,16,.88)}
+.player-preparing-spinner{width:70px;height:70px;border:8px solid rgba(120,160,220,.18);border-top-color:var(--accent,#20dff2);border-right-color:#d85cff;border-radius:50%;animation:stream-spin .85s linear infinite}
+.player-preparing strong{color:var(--text);font-size:clamp(1rem,2.3vw,1.45rem)}.player-preparing span{color:var(--muted);font-size:.82rem}.player-preparing-progress{width:min(400px,92%);height:14px;padding:2px;border:1px solid var(--line);background:#080b10}.player-preparing-progress.hidden{display:none}.player-preparing-progress-fill{width:0;height:100%;background:linear-gradient(90deg,var(--accent,#20dff2),#d85cff);transition:width .2s linear}.player-preparing-percent{min-height:1.2em}
+@keyframes stream-spin{to{transform:rotate(360deg)}}
+.player-controls{display:grid;grid-template-columns:minmax(180px,1fr) minmax(180px,1fr) auto;gap:8px;align-items:end;padding-top:10px}.player-controls label,.subtitle-size-control{display:grid;gap:5px;color:var(--muted);font-size:.72rem}.player-controls select{min-height:34px;padding:6px 8px}.subtitle-size-actions{display:flex;align-items:center;gap:4px}.subtitle-size-button{min-width:34px;min-height:34px;padding:4px 8px;border:1px solid var(--line);color:var(--text);background:transparent;cursor:pointer}.subtitle-size-value{min-width:50px;text-align:center}.player-message{min-height:20px;color:var(--muted);font-size:.7rem;line-height:1.55;padding:5px 0;overflow-wrap:anywhere}
+body.player-window-open{overflow:hidden}.player-panel.full-window{inset:0;width:100vw;height:100dvh;border:0}.player-panel.full-window #closePlayerButton{display:none}
+@media(max-width:700px){.player-panel{inset:0;width:100vw;height:100dvh;padding:6px;border:0}.player-head-actions .download-button span,.player-head-actions #fullWindowButton{font-size:0}.player-head-actions #fullWindowButton::after{content:"⛶";font-size:1rem}.player-controls{grid-template-columns:1fr 1fr}.subtitle-size-control{grid-column:1/-1}.player-message{max-height:3.4em;overflow:auto}}

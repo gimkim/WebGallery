@@ -9,6 +9,11 @@ public sealed class FileSystemService
     {
         ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif"
     };
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".wmv", ".mpg", ".mpeg", ".ts", ".m2ts", ".mts",
+        ".3gp", ".flv", ".f4v", ".ogv", ".rmvb", ".rm", ".vob", ".asf", ".divx", ".ogm"
+    };
     private static readonly HashSet<string> IgnoredFileNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "Thumbs.db",
@@ -61,6 +66,7 @@ public sealed class FileSystemService
                     childRelative.Replace(Path.DirectorySeparatorChar, '/'),
                     isDirectory,
                     !isDirectory && IsImage(extension),
+                    !isDirectory && IsVideo(extension),
                     isDirectory ? 0 : ((FileInfo)info).Length,
                     info.LastWriteTimeUtc,
                     extension.TrimStart('.').ToUpperInvariant(),
@@ -78,6 +84,7 @@ public sealed class FileSystemService
     }
 
     public static bool IsImage(string extension) => ImageExtensions.Contains(extension);
+    public static bool IsVideo(string extension) => VideoExtensions.Contains(extension);
     public static bool IsIgnoredFileName(string fileName) => IgnoredFileNames.Contains(fileName);
 
     public static bool IsHiddenOrSystem(string path)
@@ -107,6 +114,7 @@ public sealed class FileSystemService
             info.Name,
             normalized.Replace(Path.DirectorySeparatorChar, '/'),
             true,
+            false,
             false,
             0,
             info.LastWriteTimeUtc,

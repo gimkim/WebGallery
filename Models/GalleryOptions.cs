@@ -13,4 +13,6 @@ public sealed class GalleryOptions
     public int ThumbnailQuality { get; set; } = 78;
     public int ThumbnailConcurrency { get; set; } = ThumbnailQueueSettings.DefaultConcurrency;
     public int DefaultItemsPerRow { get; set; } = 8;
+    public string FfmpegPath { get; set; } = "C:\\Web\\imagegallery-tools\\ffmpeg.exe";
+    public string FfprobePath { get; set; } = "C:\\Web\\imagegallery-tools\\ffprobe.exe";
 }

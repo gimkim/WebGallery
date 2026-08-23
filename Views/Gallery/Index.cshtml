@@ -29,7 +29,8 @@
     var createdShareLinkId = TempData.Peek("CreatedShareLinkId") is int id ? id : (int?)null;
     var folderCount = Model.Items.Count(item => item.IsDirectory);
     var imageCount = Model.Items.Count(item => item.IsImage);
-    var otherFileCount = Model.Items.Count(item => !item.IsDirectory && !item.IsImage);
+    var videoCount = Model.Items.Count(item => item.IsVideo);
+    var otherFileCount = Model.Items.Count(item => !item.IsDirectory && !item.IsImage && !item.IsVideo);
     var breadcrumbItems = new List<(string Path, string Name)>();
     if (Model.IsCollectionShare)
     {
@@ -91,6 +92,7 @@
         <div class="gallery-summary" aria-label="Folder contents">
             <span>@folderCount folder@(folderCount == 1 ? "" : "s")</span>
             <span>@imageCount image@(imageCount == 1 ? "" : "s")</span>
+            @if (videoCount > 0) { <span>@videoCount video@(videoCount == 1 ? "" : "s")</span> }
             @if (otherFileCount > 0) { <span>@otherFileCount other file@(otherFileCount == 1 ? "" : "s")</span> }
             <span id="gallery-visible-summary" hidden></span>
         </div>
@@ -147,7 +149,7 @@
     <div class="gallery-toolbar-main" data-gallery-toolbar-main>
         <div class="gallery-discovery-controls">
             <label class="gallery-search"><span class="sr-only">Search current folder</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><input id="gallery-search" type="search" autocomplete="off" placeholder="Search current folder..." /></label>
-            <label class="gallery-type-filter"><span class="sr-only">Filter item type</span><select id="gallery-type-filter"><option value="all">All items</option><option value="folder">Folders</option><option value="image">Images</option><option value="file">Other files</option></select></label>
+            <label class="gallery-type-filter"><span class="sr-only">Filter item type</span><select id="gallery-type-filter"><option value="all">All items</option><option value="folder">Folders</option><option value="image">Images</option><option value="video">Videos</option><option value="file">Other files</option></select></label>
         </div>
         <div class="sort-group" aria-label="Sort order">
             <span>Sort by</span>
@@ -231,13 +233,17 @@ else
             }
             else
             {
-                <article class="gallery-card file-card" data-item-kind="@(item.IsImage ? "image" : "file")" data-name="@item.Name" data-size="@item.Size" data-date="@item.ModifiedUtc.UtcTicks">
+                <article class="gallery-card file-card" data-item-kind="@(item.IsImage ? "image" : item.IsVideo ? "video" : "file")" data-name="@item.Name" data-size="@item.Size" data-date="@item.ModifiedUtc.UtcTicks">
                     <label class="select-toggle" title="Select @item.Name"><input class="file-select" type="checkbox" name="paths" value="@item.RelativePath" /><span aria-hidden="true">✓</span></label>
                     @if (item.IsImage)
                     {
                         <button class="media image-button thumbnail-loading" type="button" data-viewer-src="@ViewFileUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" data-viewer-thumbnail-width="@GalleryOptions.Value.ThumbnailWidth" data-viewer-thumbnail-height="@GalleryOptions.Value.ThumbnailHeight" data-viewer-name="@item.Name" data-viewer-size="@FormatSize(item.Size)" data-viewer-modified="@item.ModifiedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")" data-viewer-type="@(string.IsNullOrEmpty(item.Extension) ? "Image" : item.Extension)" data-download="@AssetUrl("Download", item.RelativePath)" data-share-audit="@AuditViewUrl(item.RelativePath)">
                             <img data-thumbnail-src="@ThumbnailUrl(item.RelativePath, WebGallery.Services.FileSystemService.CreateThumbnailCacheStamp(item.Size, item.ModifiedUtc.UtcTicks))" alt="@item.Name" decoding="async" />
                         </button>
+                    }
+                    else if (item.IsVideo)
+                    {
+                        <button class="media video-button" type="button" data-video-player data-video-name="@item.Name" data-video-path="@item.RelativePath" data-video-scope="@($"{Model.BrowseMode}:{Model.OwnerUserName}:{Model.ShareToken}")" data-media-metadata="@AssetUrl("MediaMetadata", item.RelativePath)" data-media-stream="@AssetUrl("MediaStream", item.RelativePath)" data-media-segment="@AssetUrl("MediaSegment", item.RelativePath)" data-media-continuous="@AssetUrl("MediaContinuousHevc", item.RelativePath)" data-media-subtitle="@AssetUrl("MediaSubtitle", item.RelativePath)" data-media-subtitle-progress="@AssetUrl("MediaSubtitleProgress", item.RelativePath)" data-media-download="@AssetUrl("Download", item.RelativePath)" aria-label="Play @item.Name" aria-pressed="false"><span class="video-file-icon">@(string.IsNullOrEmpty(item.Extension) ? "VIDEO" : item.Extension)</span><span class="video-play-icon" aria-hidden="true">▶</span></button>
                     }
                     else
                     {
@@ -270,6 +276,13 @@ else
         <img id="viewer-image" alt="" />
     </div>
     <div id="viewer-filmstrip" class="viewer-filmstrip" aria-label="Images in this folder"></div>
+</dialog>
+
+<dialog id="playerPanel" class="player-panel hidden" aria-label="Video player">
+    <div class="player-head"><div><strong id="playerTitle">VIDEO PLAYER</strong><span id="playerMeta">Preparing video...</span></div><div class="player-head-actions"><a id="playerDownload" class="button compact download-button" hidden><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg><span>Download</span></a><button id="fullWindowButton" class="button compact" type="button" aria-pressed="false">Full window</button><button id="closePlayerButton" class="icon-button" type="button" aria-label="Close">×</button></div></div>
+    <div id="playerStage" class="player-stage" aria-busy="false"><video id="videoPlayer" class="video-player" controls playsinline autoplay preload="metadata"><track id="subtitleTrack" kind="subtitles" label="Subtitles" srclang="und"></video><div id="playerPreparing" class="player-preparing hidden" role="status" aria-live="polite"><div class="player-preparing-content"><div class="player-preparing-spinner" aria-hidden="true"></div><strong>Preparing stream...</strong><span id="playerPreparingDetail">Reading video metadata. Please wait...</span><div id="playerPreparingProgress" class="player-preparing-progress hidden" role="progressbar" aria-label="Stream preparation progress" aria-valuemin="0" aria-valuemax="100"><div id="playerPreparingProgressFill" class="player-preparing-progress-fill"></div></div><span id="playerPreparingPercent" class="player-preparing-percent"></span></div></div></div>
+    <div id="playerMessage" class="player-message"></div>
+    <div class="player-controls"><label>Audio<select id="audioTrackSelect" disabled><option>No track data</option></select></label><label>Subtitles<select id="subtitleTrackSelect" disabled><option value="">Subtitles off</option></select></label><div class="subtitle-size-control" aria-label="Subtitle size"><span>Subtitle size</span><div class="subtitle-size-actions"><button id="subtitleDecreaseButton" class="subtitle-size-button" type="button" aria-label="Decrease subtitle size">A−</button><output id="subtitleSizeValue" class="subtitle-size-value" aria-live="polite">100%</output><button id="subtitleIncreaseButton" class="subtitle-size-button" type="button" aria-label="Increase subtitle size">A+</button></div></div></div>
 </dialog>
 
 @functions {

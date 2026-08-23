@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Identity;
@@ -21,6 +22,7 @@ public sealed class GalleryController(
     GalleryDbContext db,
     FileSystemService files,
     ThumbnailService thumbnails,
+    MediaService media,
     ShareAuditService shareAudit,
     InvalidShareTokenLimiter invalidShareTokenLimiter,
     IOptions<GalleryOptions> options) : Controller
@@ -199,6 +201,89 @@ public sealed class GalleryController(
         }
         catch (UnknownImageFormatException) { }
         return PhysicalFile(fullPath, GetContentType(fullPath), enableRangeProcessing: true);
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> MediaMetadata(string mode, string? userName, string? token, string path, CancellationToken cancellationToken)
+    {
+        var access = await ResolveVideoAccessAsync(mode, userName, token, path);
+        if (access is null) return NotFound();
+        try
+        {
+            var result = await media.GetMetadataAsync(access.Value.FullPath, cancellationToken);
+            if (access.Value.Access.ShareLink is not null)
+                await shareAudit.RecordAsync(access.Value.Access.ShareLink, ShareAuditEventTypes.View, access.Value.Access.Path);
+            Response.Headers.CacheControl = "private, no-store";
+            return Ok(result);
+        }
+        catch (MediaPlaybackException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> MediaSubtitle(string mode, string? userName, string? token, string path, int? subtitle, string? progress, CancellationToken cancellationToken)
+    {
+        if (!subtitle.HasValue) return BadRequest(new { message = "A subtitle track is required." });
+        var access = await ResolveVideoAccessAsync(mode, userName, token, path);
+        if (access is null) return NotFound();
+        try
+        {
+            var bytes = await media.GetSubtitleAsync(access.Value.FullPath, subtitle.Value, progress, cancellationToken);
+            Response.Headers.CacheControl = "no-store";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return File(bytes, "text/vtt; charset=utf-8");
+        }
+        catch (MediaPlaybackException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> MediaSubtitleProgress(string mode, string? userName, string? token, string path, string? id)
+    {
+        if (await ResolveVideoAccessAsync(mode, userName, token, path) is null) return NotFound();
+        var progress = media.GetSubtitleProgress(id);
+        return progress is null ? NotFound() : Ok(progress);
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> MediaSegment(string mode, string? userName, string? token, string path, int? audio, int? subtitle, double? start, double? duration, bool? hevc, CancellationToken cancellationToken)
+    {
+        var access = await ResolveVideoAccessAsync(mode, userName, token, path);
+        if (access is null) return NotFound();
+        try
+        {
+            var segment = await media.GetSegmentAsync(access.Value.FullPath, audio, subtitle, start ?? -1, duration ?? -1, cancellationToken, allowHevc: hevc == true);
+            Response.Headers.CacheControl = "no-store";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            Response.Headers["X-Media-Mode"] = segment.Mode;
+            Response.Headers["X-Media-Output-Codec"] = segment.OutputCodec;
+            if (segment.Profile is not null) Response.Headers["X-Media-Profile"] = segment.Profile;
+            if (segment.Level is not null) Response.Headers["X-Media-Level"] = segment.Level;
+            if (segment.Quality is not null) Response.Headers["X-Media-Quality"] = segment.Quality;
+            if (segment.TargetBitRate.HasValue) Response.Headers["X-Media-Target-Kbps"] = (segment.TargetBitRate.Value / 1000).ToString(CultureInfo.InvariantCulture);
+            if (segment.MaxBitRate.HasValue) Response.Headers["X-Media-Max-Kbps"] = (segment.MaxBitRate.Value / 1000).ToString(CultureInfo.InvariantCulture);
+            Response.Headers["X-Media-Source-Start"] = segment.SourceStart.ToString("0.###", CultureInfo.InvariantCulture);
+            Response.Headers["X-Media-Presentation-Lead"] = segment.PresentationLead.ToString("0.###", CultureInfo.InvariantCulture);
+            Response.Headers["X-Media-Next-Start"] = segment.NextStart.ToString("0.###", CultureInfo.InvariantCulture);
+            return File(segment.Bytes, "video/mp4");
+        }
+        catch (MediaPlaybackException ex) when (!Response.HasStarted) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> MediaStream(string mode, string? userName, string? token, string path, int? audio, int? subtitle, CancellationToken cancellationToken)
+    {
+        var access = await ResolveVideoAccessAsync(mode, userName, token, path);
+        if (access is null) return NotFound();
+        try { await media.StreamAsync(HttpContext, access.Value.FullPath, audio, subtitle, cancellationToken); return new EmptyResult(); }
+        catch (MediaPlaybackException ex) when (!Response.HasStarted) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> MediaContinuousHevc(string mode, string? userName, string? token, string path, int? audio, double? start, CancellationToken cancellationToken)
+    {
+        var access = await ResolveVideoAccessAsync(mode, userName, token, path);
+        if (access is null) return NotFound();
+        try { await media.StreamContinuousHevcAsync(HttpContext, access.Value.FullPath, audio, start ?? 0, cancellationToken); return new EmptyResult(); }
+        catch (MediaPlaybackException ex) when (!Response.HasStarted) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
     }
 
     [AllowAnonymous]
@@ -526,6 +611,16 @@ public sealed class GalleryController(
         return new ResolvedAccess(owner, normalized, shareLink);
     }
 
+    private async Task<ResolvedVideoAccess?> ResolveVideoAccessAsync(string mode, string? userName, string? token, string path)
+    {
+        var access = await ResolveAccessAsync(mode, userName, token, path, requireFile: true);
+        if (access is null) return null;
+        var fullPath = files.ResolvePath(access.Value.Owner, access.Value.Path);
+        return FileSystemService.IsVideo(Path.GetExtension(fullPath))
+            ? new ResolvedVideoAccess(access.Value, fullPath)
+            : null;
+    }
+
     private static string GetContentType(string path) => ContentTypes.TryGetContentType(path, out var type) ? type : "application/octet-stream";
     private string NormalizeFocusPath(string? focus)
     {
@@ -536,6 +631,7 @@ public sealed class GalleryController(
     private static bool IsShareTokenFormatValid(string? token) => token is { Length: 48 } && token.All(Uri.IsHexDigit);
 
     private readonly record struct ResolvedAccess(ApplicationUser Owner, string Path, ShareLink? ShareLink);
+    private readonly record struct ResolvedVideoAccess(ResolvedAccess Access, string FullPath);
 
     private static GalleryCollectionFolder? FindCollectionRoot(GalleryCollection collection, string requestedPath) =>
         collection.Folders

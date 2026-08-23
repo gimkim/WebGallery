@@ -1,6 +1,6 @@
 # Gim Gallery
 
-ASP.NET Core 10 gallery for filesystem-backed image collections. SQLite stores users, roles, folder access rules, unlisted share links, and system settings. Original files remain on disk; WebP thumbnails are generated into a separate cache.
+ASP.NET Core 10 gallery for filesystem-backed image and video collections. SQLite stores users, roles, unlisted share links, collections, audit logs, and system settings. Original files remain on disk; WebP thumbnails are generated into a separate cache. Video playback uses FFmpeg/ffprobe with direct H.264/HEVC streaming where supported and on-demand transcoding fallback.
 
 ## Workspaces
 
@@ -30,3 +30,5 @@ dotnet publish -c Release -o publish
 ```
 
 The published application expects the ASP.NET Core Hosting Bundle for .NET 10 on IIS. Preserve `C:\Web\imagegallery-data` across deployments because it holds the SQLite database and thumbnail cache.
+
+Video playback also requires `ffmpeg.exe` and `ffprobe.exe`. Production defaults to `C:\Web\imagegallery-tools`; paths can be changed with `Gallery:FfmpegPath` and `Gallery:FfprobePath` in `appsettings.json`.
