@@ -1,5 +1,9 @@
 @model AdminIndexViewModel
-@{ ViewData["Title"] = "Management"; }
+@{
+    ViewData["Title"] = "Management";
+    var userRootErrorId = Context.Request.Query["rootErrorUserId"].ToString();
+    var userRootError = TempData.Peek("Error") as string;
+}
 <section class="gallery-heading"><div><div class="eyebrow">MANAGEMENT</div><h1>System and users</h1><p class="muted">Manage site behavior, login protection, user accounts, and each user's gallery folders.</p></div></section>
 <nav class="management-tabs" aria-label="Management sections"><a class="active" asp-action="Index">System and users</a><a asp-action="Logs">Logs</a></nav>
 
@@ -35,7 +39,7 @@
 <section class="admin-users">
     @foreach (var user in Model.Users)
     {
-        <article class="panel user-card">
+        <article id="user-@user.Id" class="panel user-card">
             <div class="user-title"><div class="avatar">@user.UserName[..1].ToUpperInvariant()</div><div><h2>@user.UserName</h2><small>@(user.IsAdmin ? "Administrator" : "User")</small></div></div>
             <form asp-action="UpdateUser" method="post" class="stack-form">
                 <input type="hidden" name="id" value="@user.Id" />
@@ -46,6 +50,10 @@
             </form>
             <section class="admin-user-roots" aria-label="Gallery folders for @user.UserName">
                 <div class="admin-user-roots-heading"><h3>Gallery folders</h3><span class="collection-count-badge">@user.Roots.Count</span></div>
+                @if (userRootErrorId == user.Id && !string.IsNullOrWhiteSpace(userRootError))
+                {
+                    <div class="alert error admin-root-error" role="alert"><strong>Folder not added</strong><span>@userRootError</span></div>
+                }
                 @if (user.Roots.Count == 0)
                 {
                     <div class="admin-root-empty"><span aria-hidden="true">◇</span><div><strong>No folders configured</strong><small>This user's Gallery home will be empty until a folder is added.</small></div></div>

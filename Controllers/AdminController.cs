@@ -1,7 +1,9 @@
 using System.Globalization;
+using System.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WebGallery.Data;
@@ -17,7 +19,8 @@ public sealed class AdminController(
     GalleryDbContext db,
     IOptions<GalleryOptions> galleryOptions,
     ThumbnailQueueSettings thumbnailQueueSettings,
-    LoginSecuritySettings loginSecuritySettings) : Controller
+    LoginSecuritySettings loginSecuritySettings,
+    ILogger<AdminController> logger) : Controller
 {
     public async Task<IActionResult> Index()
     {
@@ -214,29 +217,35 @@ public sealed class AdminController(
     public async Task<IActionResult> AddUserRoot(string id, string physicalPath, string? name)
     {
         var user = await userManager.FindByIdAsync(id);
-        if (user is null) return NotFound();
+        if (user is null)
+            return UserRootFailure(id, "The folder was not added because the user no longer exists.");
         if (!TryValidateRoot(physicalPath, out physicalPath, out var error))
+            return UserRootFailure(id, error);
+
+        try
         {
-            TempData["Error"] = error;
-            return RedirectToAction(nameof(Index));
+            if (await db.UserRoots.AnyAsync(root => root.OwnerUserId == id && root.PhysicalPath == physicalPath))
+                return UserRootFailure(id, $"The folder is already assigned to {user.UserName}: {physicalPath}");
+
+            var sortOrder = await db.UserRoots.Where(root => root.OwnerUserId == id)
+                .Select(root => (int?)root.SortOrder).MaxAsync() ?? -1;
+            db.UserRoots.Add(new UserRoot
+            {
+                OwnerUserId = id,
+                Name = NormalizeRootName(name, physicalPath),
+                PhysicalPath = physicalPath,
+                SortOrder = sortOrder + 1
+            });
+            if (string.IsNullOrWhiteSpace(user.RootFolder)) user.RootFolder = physicalPath;
+            await db.SaveChangesAsync();
+            TempData["Success"] = $"Folder added to {user.UserName}: {physicalPath}";
+            return RedirectToUser(id);
         }
-        if (await db.UserRoots.AnyAsync(root => root.OwnerUserId == id && root.PhysicalPath == physicalPath))
+        catch (Exception exception)
         {
-            TempData["Error"] = "This folder is already assigned to the user.";
-            return RedirectToAction(nameof(Index));
+            logger.LogError(exception, "Could not add gallery root {PhysicalPath} to user {UserId}", physicalPath, id);
+            return UserRootFailure(id, DescribeRootSaveFailure(exception, physicalPath));
         }
-        var sortOrder = await db.UserRoots.Where(root => root.OwnerUserId == id).Select(root => (int?)root.SortOrder).MaxAsync() ?? -1;
-        db.UserRoots.Add(new UserRoot
-        {
-            OwnerUserId = id,
-            Name = NormalizeRootName(name, physicalPath),
-            PhysicalPath = physicalPath,
-            SortOrder = sortOrder + 1
-        });
-        if (string.IsNullOrWhiteSpace(user.RootFolder)) user.RootFolder = physicalPath;
-        await db.SaveChangesAsync();
-        TempData["Success"] = "Folder added.";
-        return RedirectToAction(nameof(Index));
     }
 
     [HttpPost]
@@ -438,9 +447,10 @@ public sealed class AdminController(
         try
         {
             normalized = NormalizeRoot(path);
-            if (!Directory.Exists(normalized))
+            var attributes = System.IO.File.GetAttributes(normalized);
+            if ((attributes & FileAttributes.Directory) == 0)
             {
-                error = $"Root folder not found: {normalized}";
+                error = $"The path is a file, not a folder: {normalized}";
                 return false;
             }
 
@@ -450,14 +460,29 @@ public sealed class AdminController(
             _ = probe.MoveNext();
             return true;
         }
-        catch (UnauthorizedAccessException)
+        catch (FileNotFoundException)
         {
-            error = $"IIS does not have permission to read the root folder: {path}";
+            error = $"The folder does not exist: {(string.IsNullOrWhiteSpace(normalized) ? path : normalized)}";
             return false;
         }
-        catch (IOException)
+        catch (DirectoryNotFoundException)
         {
-            error = $"The root folder could not be opened: {path}";
+            error = $"The folder does not exist: {(string.IsNullOrWhiteSpace(normalized) ? path : normalized)}";
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            error = $"Access was denied for {path}. Grant the IIS application pool identity Read & Execute permission on this folder and its contents.";
+            return false;
+        }
+        catch (SecurityException)
+        {
+            error = $"Windows security blocked access to {path}. Grant the IIS application pool identity Read & Execute permission.";
+            return false;
+        }
+        catch (IOException exception)
+        {
+            error = $"Windows could not open {path}: {exception.Message}";
             return false;
         }
         catch (ArgumentException)
@@ -470,5 +495,39 @@ public sealed class AdminController(
             error = "The root folder path format is not supported.";
             return false;
         }
+    }
+
+    private IActionResult UserRootFailure(string userId, string message)
+    {
+        TempData["Error"] = message;
+        return RedirectToUser(userId, showRootError: true);
+    }
+
+    private static string UserAnchor(string userId) => $"user-{userId}";
+
+    private IActionResult RedirectToUser(string userId, bool showRootError = false)
+    {
+        var url = showRootError
+            ? Url.Action(nameof(Index), new { rootErrorUserId = userId })
+            : Url.Action(nameof(Index));
+        return Redirect($"{url}#{Uri.EscapeDataString(UserAnchor(userId))}");
+    }
+
+    private static string DescribeRootSaveFailure(Exception exception, string physicalPath)
+    {
+        var cause = exception.GetBaseException();
+        if (cause is SqliteException sqlite)
+        {
+            return sqlite.SqliteErrorCode switch
+            {
+                5 or 6 => "The folder was validated, but the database is busy or locked. Wait a moment and try again.",
+                8 => "The folder was validated, but the Gallery database is read-only. Check Modify permission on the data folder.",
+                13 => "The folder was validated, but the disk containing the Gallery database is full.",
+                19 => $"The folder could not be saved because it conflicts with an existing folder assignment: {physicalPath}",
+                _ => $"SQLite could not save the folder (error {sqlite.SqliteErrorCode}): {sqlite.Message}"
+            };
+        }
+
+        return $"The folder could not be added because {cause.Message}";
     }
 }
