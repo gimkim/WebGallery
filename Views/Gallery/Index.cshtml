@@ -172,7 +172,21 @@
 <input type="hidden" name="token" value="@Model.ShareToken" />
 <input type="hidden" name="currentPath" value="@Model.Path" />
 <section class="gallery-toolbar panel @(Model.IsFileShare ? "file-share-hidden" : "")">
-    <div class="gallery-toolbar-main" data-gallery-toolbar-main>
+    <div class="mobile-sticky-summary" aria-label="Compact Gallery controls">
+        <label class="mobile-compact-sort"><span class="sr-only">Sort field</span><select data-mobile-sort aria-label="Sort field">
+            <option value="@BrowseUrl(Model.Path, "name", Model.Direction)" selected="@(Model.Sort == "name")">Name</option>
+            <option value="@BrowseUrl(Model.Path, "size", Model.Direction)" selected="@(Model.Sort == "size")">Size</option>
+            <option value="@BrowseUrl(Model.Path, "date", Model.Direction)" selected="@(Model.Sort == "date")">Date</option>
+        </select></label>
+        <button class="mobile-compact-view" type="button" data-mobile-view-toggle>Grid</button>
+        <a class="mobile-compact-order" href="@SortUrl(Model.Sort)" aria-label="Sort @(Model.Direction == "asc" ? "descending" : "ascending")" title="Sort @(Model.Direction == "asc" ? "descending" : "ascending")">@(Model.Direction == "asc" ? "↑" : "↓")</a>
+        @if (!Model.IsVirtualRoot && !Model.IsFileShare)
+        {
+            <a class="mobile-compact-download" href="@AssetUrl("DownloadFolder", Model.Path)" aria-label="@(Model.IsCollectionRoot ? "Download collection ZIP" : "Download folder ZIP")" title="@(Model.IsCollectionRoot ? "Download collection ZIP" : "Download folder ZIP")"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 19h14" /></svg></a>
+        }
+        <button class="mobile-toolbar-toggle" type="button" data-mobile-toolbar-toggle aria-expanded="false" aria-controls="gallery-toolbar-full" aria-label="Expand Gallery controls" title="Expand Gallery controls"><span aria-hidden="true">⌄</span></button>
+    </div>
+    <div id="gallery-toolbar-full" class="gallery-toolbar-main" data-gallery-toolbar-main>
         <div class="gallery-discovery-controls">
             <label class="gallery-search"><span class="sr-only">Search current folder</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><input id="gallery-search" type="search" autocomplete="off" placeholder="Search current folder..." /></label>
             <label class="gallery-type-filter"><span class="sr-only">Filter item type</span><select id="gallery-type-filter"><option value="all">All items</option><option value="folder">Folders</option><option value="image">Images</option><option value="video">Videos</option><option value="file">Other files</option></select></label>

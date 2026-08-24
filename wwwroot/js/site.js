@@ -26,6 +26,9 @@
   const gallerySearch = document.querySelector('#gallery-search');
   const galleryTypeFilter = document.querySelector('#gallery-type-filter');
   const gallerySortSelect = document.querySelector('#gallery-sort-select');
+  const mobileSortSelect = document.querySelector('[data-mobile-sort]');
+  const mobileViewToggle = document.querySelector('[data-mobile-view-toggle]');
+  const mobileToolbarToggle = document.querySelector('[data-mobile-toolbar-toggle]');
   const savedView = gallery?.dataset.initialView || localStorage.getItem('gim-gallery-view') || 'grid';
   const savedColumns = Number(gallery?.dataset.initialColumns || localStorage.getItem('gim-gallery-columns'));
 
@@ -70,9 +73,15 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+    if (mobileViewToggle) {
+      mobileViewToggle.textContent = normalizedView === 'list' ? 'List' : 'Grid';
+      mobileViewToggle.setAttribute('aria-label', normalizedView === 'list' ? 'Switch to Grid view' : 'Switch to List view');
+      mobileViewToggle.title = normalizedView === 'list' ? 'Switch to Grid view' : 'Switch to List view';
+    }
     localStorage.setItem('gim-gallery-view', normalizedView);
   }
   viewButtons.forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
+  mobileViewToggle?.addEventListener('click', () => setView(gallery?.classList.contains('list-view') ? 'grid' : 'list'));
   setView(savedView);
   if (columns) {
     if (savedColumns >= 2 && savedColumns <= 10) columns.value = savedColumns;
@@ -109,11 +118,44 @@
     if ('ResizeObserver' in window) new ResizeObserver(updateStickyListHeaderOffset).observe(galleryToolbar);
     else window.addEventListener('resize', updateStickyListHeaderOffset);
     updateStickyListHeaderOffset();
+
+    const compactToolbarQuery = window.matchMedia('(max-width: 520px)');
+    const toolbarDocumentTop = galleryToolbar.getBoundingClientRect().top + window.scrollY;
+    let compactToolbarFrame = 0;
+    const setMobileToolbarExpanded = expanded => {
+      galleryToolbar.classList.toggle('mobile-controls-expanded', expanded);
+      mobileToolbarToggle?.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      mobileToolbarToggle?.setAttribute('aria-label', expanded ? 'Collapse Gallery controls' : 'Expand Gallery controls');
+      if (mobileToolbarToggle) mobileToolbarToggle.title = expanded ? 'Collapse Gallery controls' : 'Expand Gallery controls';
+    };
+    const updateCompactToolbar = () => {
+      compactToolbarFrame = 0;
+      const compact = compactToolbarQuery.matches && window.scrollY > toolbarDocumentTop + 12;
+      galleryToolbar.classList.toggle('mobile-scroll-compact', compact);
+      if (!compact) setMobileToolbarExpanded(false);
+    };
+    const scheduleCompactToolbar = () => {
+      if (compactToolbarFrame) return;
+      compactToolbarFrame = window.requestAnimationFrame(updateCompactToolbar);
+    };
+    window.addEventListener('scroll', scheduleCompactToolbar, { passive: true });
+    window.addEventListener('resize', scheduleCompactToolbar);
+    if (compactToolbarQuery.addEventListener) compactToolbarQuery.addEventListener('change', scheduleCompactToolbar);
+    else compactToolbarQuery.addListener(scheduleCompactToolbar);
+    mobileToolbarToggle?.addEventListener('click', () => {
+      setMobileToolbarExpanded(!galleryToolbar.classList.contains('mobile-controls-expanded'));
+    });
+    updateCompactToolbar();
   }
   gallerySortSelect?.addEventListener('change', () => {
     if (!gallerySortSelect.value) return;
     cancelThumbnailRequests(false);
     window.location.assign(gallerySortSelect.value);
+  });
+  mobileSortSelect?.addEventListener('change', () => {
+    if (!mobileSortSelect.value) return;
+    cancelThumbnailRequests(false);
+    window.location.assign(mobileSortSelect.value);
   });
 
   document.querySelectorAll('form[data-create-share]').forEach(form => {
