@@ -251,6 +251,7 @@ a:focus-visible {
   position: sticky;
   top: 0;
   z-index: 22;
+  overflow-anchor: none;
   display: flex;
   align-items: center;
   justify-content: space-between;

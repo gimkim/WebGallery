@@ -121,22 +121,61 @@
 
     const compactToolbarQuery = window.matchMedia('(max-width: 520px)');
     const toolbarDocumentTop = galleryToolbar.getBoundingClientRect().top + window.scrollY;
+    const compactEnterScrollY = toolbarDocumentTop + 96;
+    const compactExitScrollY = Math.max(0, toolbarDocumentTop - 24);
+    const compactTransitionGuardMs = 650;
     let compactToolbarFrame = 0;
+    let compactToolbarActive = false;
+    let compactTransitionGuardUntil = 0;
+    let compactToolbarNeedsScrollRebase = false;
+    let lastCompactToolbarScrollY = window.scrollY;
     const setMobileToolbarExpanded = expanded => {
       galleryToolbar.classList.toggle('mobile-controls-expanded', expanded);
       mobileToolbarToggle?.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       mobileToolbarToggle?.setAttribute('aria-label', expanded ? 'Collapse Gallery controls' : 'Expand Gallery controls');
       if (mobileToolbarToggle) mobileToolbarToggle.title = expanded ? 'Collapse Gallery controls' : 'Expand Gallery controls';
     };
-    const updateCompactToolbar = () => {
-      compactToolbarFrame = 0;
-      const compact = compactToolbarQuery.matches && window.scrollY > toolbarDocumentTop + 12;
+    const applyCompactToolbar = compact => {
+      if (compactToolbarActive === compact) return;
+      compactToolbarActive = compact;
+      compactTransitionGuardUntil = performance.now() + compactTransitionGuardMs;
+      compactToolbarNeedsScrollRebase = true;
       galleryToolbar.classList.toggle('mobile-scroll-compact', compact);
       if (!compact) setMobileToolbarExpanded(false);
     };
+    const updateCompactToolbar = (initialize = false) => {
+      compactToolbarFrame = 0;
+      const currentScrollY = window.scrollY;
+      const scrollDelta = currentScrollY - lastCompactToolbarScrollY;
+      lastCompactToolbarScrollY = currentScrollY;
+
+      if (!compactToolbarQuery.matches) {
+        applyCompactToolbar(false);
+        compactToolbarNeedsScrollRebase = false;
+        return;
+      }
+
+      if (initialize) {
+        applyCompactToolbar(currentScrollY >= compactEnterScrollY);
+        compactToolbarNeedsScrollRebase = false;
+        return;
+      }
+
+      if (performance.now() < compactTransitionGuardUntil) return;
+      if (compactToolbarNeedsScrollRebase) {
+        compactToolbarNeedsScrollRebase = false;
+        return;
+      }
+
+      if (!compactToolbarActive && scrollDelta > 0 && currentScrollY >= compactEnterScrollY) {
+        applyCompactToolbar(true);
+      } else if (compactToolbarActive && scrollDelta < 0 && currentScrollY <= compactExitScrollY) {
+        applyCompactToolbar(false);
+      }
+    };
     const scheduleCompactToolbar = () => {
       if (compactToolbarFrame) return;
-      compactToolbarFrame = window.requestAnimationFrame(updateCompactToolbar);
+      compactToolbarFrame = window.requestAnimationFrame(() => updateCompactToolbar(false));
     };
     window.addEventListener('scroll', scheduleCompactToolbar, { passive: true });
     window.addEventListener('resize', scheduleCompactToolbar);
@@ -145,7 +184,7 @@
     mobileToolbarToggle?.addEventListener('click', () => {
       setMobileToolbarExpanded(!galleryToolbar.classList.contains('mobile-controls-expanded'));
     });
-    updateCompactToolbar();
+    updateCompactToolbar(true);
   }
   gallerySortSelect?.addEventListener('change', () => {
     if (!gallerySortSelect.value) return;
