@@ -31,6 +31,7 @@ public sealed class MediaService
     private const double KeyframeBucketSeconds = 60;
     private const double KeyframeLookBehindSeconds = 60;
     private const double KeyframeReadDurationSeconds = 120;
+    private const double CopySegmentStartGuardSeconds = 0.001;
     private const double CopySegmentEndGuardSeconds = 0.001;
     private static readonly HashSet<string> TextSubtitleCodecs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -281,7 +282,7 @@ public sealed class MediaService
             var seekPlan = copyPlan is not null
                 ? new SeekPlan(
                     copyPlan.InputStartSeconds,
-                    Math.Max(0, copyPlan.DecodeStartSeconds - copyPlan.InputStartSeconds))
+                    Math.Max(0, copyPlan.DecodeStartSeconds - copyPlan.InputStartSeconds - CopySegmentStartGuardSeconds))
                 : startSeconds > 0
                     ? await ResolveSeekPlanAsync(tracks, startSeconds, cancellationToken)
                     : null;
@@ -463,7 +464,7 @@ public sealed class MediaService
         var copyPlan = await ResolveCopySegmentPlanAsync(tracks.SourcePath, startSeconds, 8, cancellationToken);
         var seekPlan = new SeekPlan(
             copyPlan.InputStartSeconds,
-            Math.Max(0, copyPlan.DecodeStartSeconds - copyPlan.InputStartSeconds));
+            Math.Max(0, copyPlan.DecodeStartSeconds - copyPlan.InputStartSeconds - CopySegmentStartGuardSeconds));
 
         await _segmentSlots.WaitAsync(cancellationToken);
         Process? process = null;
@@ -1075,9 +1076,13 @@ public sealed class MediaService
 
         var inputStart = keyframes
             .Where(value => value.PresentationSeconds < start - 0.002)
-            .Select(value => value.PresentationSeconds)
-            .DefaultIfEmpty(start)
+            .Select(value => value.DecodeSeconds)
+            .DefaultIfEmpty(decodeStart)
             .Last();
+        // Input seeking is resolved on the decode timeline as well. Seeking to
+        // the previous keyframe's PTS can land after its DTS for B-frame video,
+        // causing FFmpeg to skip the intended random-access packet and reuse or
+        // omit video at the following independent fragment.
         // FFmpeg applies -t on decode timestamps. End immediately before the
         // next keyframe's DTS so that keyframe belongs only to the next fragment
         // without dropping the B-frames that precede it in presentation order.
@@ -1432,7 +1437,11 @@ public sealed class MediaService
             : null;
 
     private static string FormatSeconds(double value) =>
-        value.ToString("0.###", CultureInfo.InvariantCulture);
+        // ffprobe reports packet timestamps at microsecond precision. Three
+        // decimals can round a keyframe forward (for example 62.562500 to
+        // 62.563), so input seeking starts after that keyframe and the fragment
+        // may contain audio without video. Preserve the probe precision.
+        value.ToString("0.######", CultureInfo.InvariantCulture);
 
     private sealed record SelectedTracks(
         string SourcePath,
