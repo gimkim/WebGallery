@@ -25,7 +25,7 @@ public sealed class ShareAuditService(GalleryDbContext db, IHttpContextAccessor 
             OccurredAtUtc = occurredAtUtc,
             OccurredAtUnixSeconds = occurredAtUtc.ToUnixTimeSeconds(),
             EventType = eventType,
-            TargetPath = Truncate((targetPath ?? "").Replace('\\', '/'), 2048),
+            TargetPath = Truncate(FileSystemService.ToLogicalPath(targetPath ?? ""), 2048),
             Details = detailPaths is null ? "" : SerializeDetails(detailPaths),
             ItemCount = Math.Max(0, itemCount),
             ClientIp = Truncate(clientAddress, 64),
@@ -88,7 +88,7 @@ public sealed class ShareAuditService(GalleryDbContext db, IHttpContextAccessor 
         var selected = new List<string>();
         foreach (var path in paths.Take(100))
         {
-            selected.Add(Truncate(path.Replace('\\', '/'), 1024));
+            selected.Add(Truncate(FileSystemService.ToLogicalPath(path), 1024));
             var candidate = JsonSerializer.Serialize(selected);
             if (candidate.Length <= 4096) continue;
             selected.RemoveAt(selected.Count - 1);

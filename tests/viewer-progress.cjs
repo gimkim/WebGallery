@@ -1,0 +1,11 @@
+const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
+const source = fs.readFileSync(require('node:path').join(__dirname, '../wwwroot/js/site.js'),'utf8');
+const code = source.slice(source.indexOf('  function updateViewerProgress('), source.indexOf('  async function displayViewerSource('));
+const ctx = {viewerProgress:{removeAttribute(name){delete this[name];}}, viewerProgressDetail:{}, formatViewerBytes:n=>`${n} B`};
+vm.createContext(ctx);vm.runInContext(code,ctx);
+ctx.updateViewerProgress(25,100);
+assert.equal(ctx.viewerProgress.value,25);assert.equal(ctx.viewerProgressDetail.textContent,'25% · 25 B / 100 B');
+ctx.updateViewerProgress(50,0);
+assert.equal(ctx.viewerProgress.value,undefined);assert.match(ctx.viewerProgressDetail.textContent,/total size unknown/);
+ctx.updateViewerProgress(100,100);assert.equal(ctx.viewerProgress.value,100);
+console.log('PASS: transfer percentage/bytes, unknown-length indeterminate, completed transfer.');

@@ -1,4 +1,5 @@
-(() => {
+window.GalleryPages.mounts.push(scope => {
+  const { window, document, setTimeout, setInterval, clearTimeout, clearInterval, requestAnimationFrame, fetch } = scope;
   "use strict";
   const $ = id => document.getElementById(id);
   const panel = $("playerPanel");
@@ -1248,15 +1249,18 @@
   $("subtitleDecreaseButton").addEventListener("click",()=>changeSubtitleSize(-SUBTITLE_SIZE_STEP));
   $("subtitleIncreaseButton").addEventListener("click",()=>changeSubtitleSize(SUBTITLE_SIZE_STEP));
   $("closePlayerButton").addEventListener("click",closePlayer);
+  window.addEventListener('pagehide', closePlayer);
   $("fullWindowButton").addEventListener("click",toggleFullWindow);
-  document.querySelectorAll("[data-video-player]").forEach(button=>{
+  function bindVideoButton(button) {
     const item={name:button.dataset.videoName,relativePath:button.dataset.videoPath,scope:button.dataset.videoScope,
       metadataUrl:button.dataset.mediaMetadata,streamUrl:button.dataset.mediaStream,segmentUrl:button.dataset.mediaSegment,downloadUrl:button.dataset.mediaDownload,
       continuousUrl:button.dataset.mediaContinuous,subtitleUrl:button.dataset.mediaSubtitle,subtitleProgressUrl:button.dataset.mediaSubtitleProgress};
     button._mediaItem=item;
     button.addEventListener("click",event=>{event.preventDefault();event.stopPropagation(); if(sameMediaItem(item,playerState.item)&&!$("videoPlayer").paused)$("videoPlayer").pause(); else {panel.showModal?.();openPlayer(item);} });
     if(button.dataset.videoAutoOpen==="true")queueMicrotask(()=>{panel.showModal?.();openPlayer(item);});
-  });
+  }
+  document.querySelectorAll("[data-video-player]").forEach(bindVideoButton);
+  document.addEventListener('gallery:items-added',event=>event.detail.root.querySelectorAll('[data-video-player]').forEach(bindVideoButton));
   $("audioTrackSelect").addEventListener("change",()=>{rememberMediaTrackSelection(playerState.item,playerState.metadata,true);loadPlayerStream(true);});
   $("subtitleTrackSelect").addEventListener("change",()=>{const item=playerState.item,token=playerState.token,subtitle=$("subtitleTrackSelect").value;rememberMediaTrackSelection(item,playerState.metadata,true);loadSubtitleTrack(item,subtitle,token).catch(error=>{if(error?.name!=="AbortError"&&token===playerState.token){setPlayerPreparing(false);setPlayerStatus(error.message||"Could not load subtitles.");}});});
   const video=$("videoPlayer");
@@ -1275,4 +1279,4 @@
   document.addEventListener("keydown",event=>{if(event.key==="Escape"&&!document.fullscreenElement&&!panel.classList.contains("full-window"))closePlayer();else if(event.key==="Escape"&&panel.classList.contains("full-window"))setFullWindow(false);});
   document.addEventListener("keydown",handlePlayerKeyboardShortcut,true);
   panel.addEventListener("click",event=>{if(event.target===panel)closePlayer();});
-})();
+});

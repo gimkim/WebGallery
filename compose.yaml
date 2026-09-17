@@ -1,0 +1,47 @@
+name: webgallery
+
+services:
+  webgallery:
+    image: webgallery:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webgallery
+    restart: unless-stopped
+    ports:
+      - "${WEBGALLERY_BIND_IP:-127.0.0.1}:${WEBGALLERY_PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://+:8080
+      TZ: ${WEBGALLERY_TIMEZONE:-Asia/Bangkok}
+      Hosting__UseHttpsRedirection: ${WEBGALLERY_HTTPS_REDIRECT:-false}
+      ReverseProxy__Enabled: ${WEBGALLERY_PROXY_ENABLED:-false}
+      ReverseProxy__ForwardLimit: ${WEBGALLERY_PROXY_FORWARD_LIMIT:-1}
+      ReverseProxy__KnownProxies__0: ${WEBGALLERY_PROXY_IP:-}
+      ReverseProxy__KnownNetworks__0: ${WEBGALLERY_PROXY_NETWORK:-}
+      ReverseProxy__AllowedHosts__0: ${WEBGALLERY_PUBLIC_HOST:-}
+    volumes:
+      - type: bind
+        source: ${WEBGALLERY_DATA_ROOT:?Set WEBGALLERY_DATA_ROOT in the Docker environment file}/database
+        target: /data/database
+      - type: bind
+        source: ${WEBGALLERY_DATA_ROOT:?Set WEBGALLERY_DATA_ROOT in the Docker environment file}/keys
+        target: /data/keys
+      - type: bind
+        source: ${WEBGALLERY_DATA_ROOT:?Set WEBGALLERY_DATA_ROOT in the Docker environment file}/cache
+        target: /data/cache
+      - type: bind
+        source: ${WEBGALLERY_MEDIA_ROOT_1:?Set WEBGALLERY_MEDIA_ROOT_1 in the Docker environment file}
+        target: /gallery/media1
+        read_only: ${WEBGALLERY_MEDIA_READ_ONLY:-true}
+      - type: bind
+        source: ${WEBGALLERY_MEDIA_ROOT_2:?Set WEBGALLERY_MEDIA_ROOT_2 in the Docker environment file}
+        target: /gallery/media2
+        read_only: ${WEBGALLERY_MEDIA_READ_ONLY:-true}
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

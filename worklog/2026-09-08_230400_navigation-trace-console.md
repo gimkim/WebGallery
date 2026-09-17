@@ -1,0 +1,10 @@
+# Navigation loading diagnostics console
+
+- Request: Nerd-style console while navigating folders with endpoint, response, progress and elapsed time.
+- Date: 2026-09-08, Asia/Bangkok.
+- Changes: Added navigation-console.js and layout include; folder navigation emits request URL in a CustomEvent; terminal-style CSS in the single site stylesheet. Displays sanitized GET route, native MVC document request type, pending/indeterminate state, live elapsed time and thumbnail suspension. Destination Navigation Timing reports HTTP status where supported, body/transfer size, time to first byte, transfer duration and completed document progress. Dismissible completion console expires after eight seconds and never makes loaded page inert.
+- Accuracy/security: no extra fetch, fabricated API or response body dump. Native cross-document navigation cannot expose live response status/bytes to the outgoing page; unavailable metrics are explicitly labeled. Percent100 only on document response completion. Share tokens/query secrets and internal root markers are redacted before UI/session trace persistence. Trace expires after two minutes. Thumbnail requests are not included in document totals.
+- Files: wwwroot/js/navigation-console.js, folder-navigation.js, wwwroot/css/site.css, Views/Shared/_Layout.cshtml, tests/navigation-console.cjs, tests/folder-navigation.cjs, AGENTS.md, .agents/PROJECT_NOTES.md, this worklog.
+- Validation: JS syntax passed; mock tests passed waiting/unknown state, redaction including persisted trace, actual supplied Navigation Timing metrics, cancel cleanup and prior navigation/BFCache logic. Windows-IIS publish passed. No real browser visual or network timing test performed.
+- Deployment: Windows NAS application only. Backup `\\Gimkim-nas\c\Users\tatsa\web-data\backups\20260908-230338-index-deploy`. App files hash-verified; config preserved; data/cache/keys/tools not replaced. LAN-pinned TLS health status ok, new console JS HTTP200, maintenance file absent.
+- Remaining: Native navigation still does not offer live download percentages. No authenticated mobile/desktop visual QA claimed. No local IIS, Linux or Git changes deployed.

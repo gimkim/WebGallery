@@ -1,0 +1,8 @@
+# Immediate cached folder navigation
+
+- Request: show previously loaded folder/file listings immediately on folder entry and Back, then check changes in background.
+- Files: wwwroot/js/spa-router.js, tests/spa-folder-cache.cjs, AGENTS.md, .agents/PROJECT_NOTES.md.
+- Implementation: bounded tab-local snapshot LRU; existing authorized page API revalidation; unchanged markup retains live DOM; stale request generation ignored; changed listing preserves scroll; active viewer/selection/control is not torn down (updated data available on next visit). Focus does not duplicate cache keys. POST/auth/error transitions clear snapshots. No persistent browser storage and no server authorization changes.
+- Validation: node syntax check passed. Headless Edge against isolated local MVC fixture with delayed page API responses passed immediate cached Back/Forward, no skeleton on cache hit, unchanged DOM identity, changed response application, stale-navigation suppression, and no JS errors. Change response is controlled test data, not a live NAS filesystem mutation. Windows-IIS Release publish passed. Local test server stopped.
+- Deployment: Windows NAS deployment script invoked with application/state backup, config/state preservation and hash verification; completion/health result tracked in session tools. No ThumbService, Linux, local C:\Web deployment or Git push.
+- Limitations: cache exists only within the current tab/document. Active interactions defer visible refresh until next visit. Authenticated production-browser navigation and large real NAS listings remain manual checks; local tests are not NAS latency benchmarks.

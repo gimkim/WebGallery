@@ -28,13 +28,61 @@ public sealed class GalleryController(
     IOptions<GalleryOptions> options) : Controller
 {
     private static readonly FileExtensionContentTypeProvider ContentTypes = new();
+    [AllowAnonymous, HttpGet]
+    public async Task<IActionResult> BrowseManifest(string mode, string? token, string path, string? sort, string? dir)
+    {
+        Response.Headers.CacheControl = "no-store";
+        try {
+            if (mode == "share") {
+                var address = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var cooldown = invalidShareTokenLimiter.GetCooldown(address);
+                if (cooldown.IsActive) return ShareCooldown(cooldown);
+                if (!IsShareTokenFormatValid(token)) return InvalidShareToken(address);
+            }
+            var access = await ResolveAccessAsync(mode, null, token, path, false);
+            if (access is null) return NotFound();
+            var order = ResolveSortOrder(sort, dir);
+            var rows = files.List(access.Value.Owner, path, order.Sort, order.Direction);
+            return Json(new { total = rows.Count, pageSize = 500, revision = GalleryBrowseSections.Revision(rows, order.Sort),
+                sections = GalleryBrowseSections.Create(rows, order.Sort) });
+        } catch (UnauthorizedAccessException) { return NotFound(); }
+          catch (DirectoryNotFoundException) { return NotFound(); }
+          catch (ArgumentException) { return BadRequest(); }
+    }
+    private static string[] SelectedPaths(ShareLink link) {
+        try { return System.Text.Json.JsonSerializer.Deserialize<string[]>(link.SelectedPathsJson) ?? []; }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
 
     [Authorize]
     public async Task<IActionResult> Index(string? path, string? sort = null, string? dir = null, string? focus = null)
     {
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
-        var order = ResolveSortOrder(sort, dir);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            var root = await db.UserRoots.SingleOrDefaultAsync(x => x.OwnerUserId == owner.Id);
+            if (root is not null) path = FileSystemService.RootMarker(root.Id);
+        }
+        var order = (Sort: NormalizeSort(sort) ?? "name", Direction: NormalizeDirection(dir) ?? "asc");
+        if (!string.IsNullOrWhiteSpace(path)) {
+            try {
+                path = FileSystemService.ToLogicalPath(files.NormalizeRelativePath(path));
+                var physical = files.ResolvePath(owner, path);
+                if (!Directory.Exists(physical)) return NotFound();
+                var canonical = OperatingSystem.IsWindows() ? path.ToUpperInvariant() : path;
+                var key = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical)));
+                var saved = await db.FolderBrowsePreferences.AsNoTracking().SingleOrDefaultAsync(x => x.OwnerId == owner.Id && x.FolderKey == key);
+                order = (NormalizeSort(sort) ?? saved?.Sort ?? "name", NormalizeDirection(dir) ?? saved?.Direction ?? "asc");
+                if (Request.Headers["X-Gallery-Chunk"] != "1" && (saved is null || saved.Sort != order.Sort || saved.Direction != order.Direction)) {
+                    await db.Database.ExecuteSqlInterpolatedAsync($"""
+                        INSERT INTO FolderBrowsePreferences (OwnerId,FolderKey,Sort,Direction) VALUES ({owner.Id},{key},{order.Sort},{order.Direction})
+                        ON CONFLICT(OwnerId,FolderKey) DO UPDATE SET Sort=excluded.Sort,Direction=excluded.Direction
+                        """);
+                }
+            } catch (UnauthorizedAccessException) { return NotFound(); }
+              catch (ArgumentException) { return BadRequest(); }
+        }
         return await RenderAsync(owner, path, order.Sort, order.Direction, "private", null, "", canManage: true, focus, null, null);
     }
 
@@ -58,6 +106,15 @@ public sealed class GalleryController(
             var fileResult = await RenderFileShareAsync(link);
             if (fileResult is ViewResult) await shareAudit.RecordAsync(link, ShareAuditEventTypes.Access, link.RelativePath);
             return fileResult;
+        }
+        if (link.TargetType == ShareTargetTypes.Selection) {
+            if (!string.IsNullOrEmpty(path) && !FileSystemService.PathsEqual(path,link.RelativePath)) return NotFound();
+            var items = SelectedPaths(link).Select(p => files.GetFileItem(link.Owner,p)).Where(x=>x is not null).Cast<GalleryItemViewModel>().ToList();
+            IEnumerable<GalleryItemViewModel> sorted = order.Sort == "size" ? items.OrderBy(x=>x.Size) : order.Sort == "date" ? items.OrderBy(x=>x.ModifiedUtc) : items.OrderBy(x=>x.Name,FileSystemService.PathComparer);
+            if(order.Direction=="desc") sorted=sorted.Reverse();
+            if(order.Sort=="taken") sorted=FileSystemService.SortTaken(items,order.Direction=="desc");
+            await shareAudit.RecordAsync(link,ShareAuditEventTypes.Access,link.RelativePath);
+            return View("Index",new GalleryViewModel { Title="Shared files",OwnerUserName=link.Owner.UserName ?? "",Path=link.RelativePath,ShareRootPath=link.RelativePath,ShareRootName="Shared files",BrowseMode="share",ShareToken=link.Token,IsSelectionShare=true,Sort=order.Sort,Direction=order.Direction,Items=sorted.ToList(),DefaultItemsPerRow=link.ItemsPerRow,InitialItemsPerRow=link.ItemsPerRow,InitialViewMode=link.ViewMode });
         }
         if (link.Collection is not null)
         {
@@ -145,23 +202,27 @@ public sealed class GalleryController(
     {
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
-        var selected = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (selected.Count != 1)
+        var selected = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(FileSystemService.PathComparer).ToList();
+        if (selected.Count is < 1 or > 1000)
         {
-            TempData["Error"] = "Select exactly one image or video to create a file share link.";
+            TempData["Error"] = "Select between 1 and 1000 files to share.";
             return RedirectToAction(nameof(Index), new { path = currentPath });
         }
         var normalized = files.NormalizeRelativePath(selected[0]).Replace(Path.DirectorySeparatorChar, '/');
         var item = files.GetFileItem(owner, normalized);
-        if (item is null || (!item.IsImage && !item.IsVideo)) return NotFound();
+        if (item is null) return NotFound();
         var normalizedCurrent = files.NormalizeRelativePath(currentPath).Replace(Path.DirectorySeparatorChar, '/');
-        if (!string.Equals(FileSystemService.GetParent(normalized), normalizedCurrent, StringComparison.OrdinalIgnoreCase)) return NotFound();
+        if (!FileSystemService.PathsEqual(FileSystemService.GetParent(normalized), normalizedCurrent)) return NotFound();
+        selected = selected.Select(p=>FileSystemService.ToLogicalPath(files.NormalizeRelativePath(p))).ToList();
+        foreach(var p in selected) if(!FileSystemService.PathsEqual(FileSystemService.GetParent(p),normalizedCurrent) || files.GetFileItem(owner,p) is null) return NotFound();
+        var selection = selected.Count > 1 || (!item.IsImage && !item.IsVideo);
         var link = new ShareLink
         {
             OwnerUserId = owner.Id,
-            RelativePath = normalized,
+            RelativePath = selection ? normalizedCurrent : normalized,
             Token = CreateToken(),
-            TargetType = ShareTargetTypes.File,
+            TargetType = selection ? ShareTargetTypes.Selection : ShareTargetTypes.File,
+            SelectedPathsJson = System.Text.Json.JsonSerializer.Serialize(selected),
             Sort = "name",
             Direction = "asc",
             ItemsPerRow = options.Value.DefaultItemsPerRow,
@@ -189,23 +250,27 @@ public sealed class GalleryController(
     }
 
     [AllowAnonymous]
-    public async Task<IActionResult> Thumbnail(string mode, string? userName, string? token, string path, string? stamp, CancellationToken cancellationToken)
+    public async Task<IActionResult> Thumbnail(string mode, string? userName, string? token, string path, string? stamp, CancellationToken cancellationToken, string? v = null, bool medium = false)
     {
         var access = await ResolveAccessAsync(mode, userName, token, path, requireFile: true);
         if (access is null) return NotFound();
         var fullPath = files.ResolvePath(access.Value.Owner, access.Value.Path);
-        if (!FileSystemService.IsImage(Path.GetExtension(fullPath))) return NotFound();
+        if (!FileSystemService.HasThumbnail(Path.GetExtension(fullPath))) return NotFound();
         try
         {
             var priority = string.Equals(Request.Headers["X-Thumbnail-Priority"], "visible", StringComparison.OrdinalIgnoreCase)
                 ? ThumbnailPriority.Visible
                 : ThumbnailPriority.Normal;
-            var cacheFile = await thumbnails.GetOrCreateAsync(access.Value.Owner.Id, fullPath, priority, cancellationToken);
+            var cacheFile = await thumbnails.GetOrCreateAsync(access.Value.Owner.Id, fullPath, priority, cancellationToken, v, medium);
             Response.Headers.CacheControl = string.IsNullOrWhiteSpace(stamp)
                 ? "private, no-cache"
                 : "private, max-age=31536000, immutable";
             return PhysicalFile(cacheFile, "image/webp", enableRangeProcessing: true);
         }
+        catch (VideoThumbnailException ex) { Response.Headers.CacheControl = "no-store"; return UnprocessableEntity(new { error=ex.Message }); }
+        catch (MediumThumbnailUnavailableException) { Response.Headers.CacheControl = "no-store"; return NoContent(); }
+        catch (RemoteThumbnailRejectedException) { Response.Headers.CacheControl = "no-store"; return StatusCode(StatusCodes.Status422UnprocessableEntity); }
+        catch (RawPreviewException ex) { Response.Headers.CacheControl = "no-store"; return UnprocessableEntity(new { error=ex.Message }); }
         catch (UnknownImageFormatException) { return NotFound(); }
         catch (ThumbnailQueueFullException)
         {
@@ -225,6 +290,21 @@ public sealed class GalleryController(
         if (access is null) return NotFound();
         var fullPath = files.ResolvePath(access.Value.Owner, access.Value.Path);
         if (!FileSystemService.IsImage(Path.GetExtension(fullPath))) return NotFound();
+        if (RawPreview.IsRaw(fullPath)) {
+            try {
+                var preview = await RawPreview.OpenAsync(fullPath,options.Value.ExifToolPath,cancellationToken);
+                try {
+                    var details=await Image.IdentifyAsync(preview,cancellationToken);
+                    var w=details.Width;var h=details.Height;
+                    if(details.Metadata.ExifProfile?.TryGetValue(ExifTag.Orientation,out var rotation)==true && rotation.Value is >=5 and <=8) (w,h)=(h,w);
+                    Response.Headers["X-Image-Width"]=w.ToString();Response.Headers["X-Image-Height"]=h.ToString();
+                    preview.Position=0;
+                } catch { await preview.DisposeAsync();throw; }
+                Response.Headers.CacheControl = "private, no-cache";
+                Response.Headers["X-Image-Source"]="embedded-raw-preview";
+                return File(preview,"image/jpeg",enableRangeProcessing:true);
+            } catch(RawPreviewException ex) { return UnprocessableEntity(new { error=ex.Message }); }
+        }
         Response.Headers.CacheControl = string.IsNullOrWhiteSpace(stamp)
             ? "private, no-cache"
             : "private, max-age=31536000, immutable";
@@ -250,6 +330,26 @@ public sealed class GalleryController(
     }
 
     [AllowAnonymous]
+    public async Task<IActionResult> ImageMetadata(string mode, string? userName, string? token, string path, CancellationToken cancellationToken)
+    {
+        var access = await ResolveAccessAsync(mode, userName, token, path, requireFile: true);
+        if (access is null) return NotFound();
+        var fullPath = files.ResolvePath(access.Value.Owner, access.Value.Path);
+        if (!FileSystemService.IsImage(Path.GetExtension(fullPath))) return NotFound();
+        Response.Headers.CacheControl = "private, no-store";
+        try
+        {
+            await using var metadataStream = await RawPreview.OpenAsync(fullPath,options.Value.ExifToolPath,cancellationToken);
+            var info = await Image.IdentifyAsync(metadataStream, cancellationToken);
+            return Ok(new { exif = ImageExifMetadata.Read(info?.Metadata.ExifProfile) });
+        }
+        catch (UnknownImageFormatException) { return Ok(new { exif = Array.Empty<object>() }); }
+        catch (InvalidImageContentException) { return UnprocessableEntity(); }
+        catch (RawPreviewException ex) { return UnprocessableEntity(new {error=ex.Message}); }
+        catch (IOException) { return NotFound(); }
+    }
+
+    [AllowAnonymous]
     public async Task<IActionResult> MediaMetadata(string mode, string? userName, string? token, string path, CancellationToken cancellationToken)
     {
         var access = await ResolveVideoAccessAsync(mode, userName, token, path);
@@ -263,6 +363,25 @@ public sealed class GalleryController(
             return Ok(result);
         }
         catch (MediaPlaybackException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+    }
+
+    [AllowAnonymous]
+    public async Task<IActionResult> VideoBadges(string mode, string? userName, string? token, string path, string? stamp, CancellationToken cancellationToken)
+    {
+        var access = await ResolveVideoAccessAsync(mode, userName, token, path);
+        if (access is null) return NotFound();
+        try
+        {
+            var result = await media.GetMetadataAsync(access.Value.FullPath, cancellationToken);
+            var source = new FileInfo(access.Value.FullPath);
+            var expectedStamp = FileSystemService.CreateThumbnailCacheStamp(source.Length, source.LastWriteTimeUtc.Ticks);
+            Response.Headers.CacheControl = string.Equals(stamp, expectedStamp, StringComparison.Ordinal)
+                ? "private, max-age=31536000, immutable"
+                : "private, no-cache";
+            return Ok(new { badges = VideoMetadataBadges.Merge(source.Name, result) });
+        }
+        catch (MediaPlaybackException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (IOException) { return NotFound(); }
     }
 
     [AllowAnonymous]
@@ -399,7 +518,7 @@ public sealed class GalleryController(
 
         var downloadName = string.IsNullOrEmpty(access.Value.Path) ? access.Value.Owner.UserName ?? "gallery" : new DirectoryInfo(folderPath).Name;
         var entries = EnumerateFilesWithoutReparsePoints(folderPath)
-            .Select(filePath => (FilePath: filePath, EntryName: Path.GetRelativePath(folderPath, filePath).Replace('\\', '/')))
+            .Select(filePath => (FilePath: filePath, EntryName: Path.GetRelativePath(folderPath, filePath).Replace(Path.DirectorySeparatorChar, '/')))
             .ToList();
         if (access.Value.ShareLink is not null)
             await shareAudit.RecordAsync(access.Value.ShareLink, ShareAuditEventTypes.DownloadFolder,
@@ -418,10 +537,15 @@ public sealed class GalleryController(
         string[] paths,
         CancellationToken cancellationToken)
     {
-        var selected = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var selected = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(FileSystemService.PathComparer).ToList();
         if (selected.Count == 0) return BadRequest();
 
         var folderAccess = await ResolveAccessAsync(mode, userName, token, currentPath ?? "", requireFile: false);
+        if (folderAccess is null && mode == "share") {
+            var first = await ResolveAccessAsync(mode,userName,token,selected[0],requireFile:true);
+            if (first?.ShareLink?.TargetType == ShareTargetTypes.Selection && FileSystemService.PathsEqual(currentPath ?? "",first.Value.ShareLink.RelativePath))
+                folderAccess = new ResolvedAccess(first.Value.Owner,first.Value.ShareLink.RelativePath,first.Value.ShareLink);
+        }
         if (folderAccess is null) return NotFound();
         var folderPath = files.ResolvePath(folderAccess.Value.Owner, folderAccess.Value.Path);
         var normalizedFolderPath = Path.GetFullPath(folderPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -434,7 +558,7 @@ public sealed class GalleryController(
             if (access is null || access.Value.Owner.Id != folderAccess.Value.Owner.Id) return NotFound();
             var fullPath = files.ResolvePath(access.Value.Owner, access.Value.Path);
             var parentPath = Path.GetFullPath(Path.GetDirectoryName(fullPath)!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (!string.Equals(parentPath, normalizedFolderPath, StringComparison.OrdinalIgnoreCase)) return NotFound();
+            if (!FileSystemService.PathsEqual(parentPath, normalizedFolderPath)) return NotFound();
             resolvedFiles.Add(fullPath);
             resolvedRelativePaths.Add(access.Value.Path);
         }
@@ -474,20 +598,36 @@ public sealed class GalleryController(
         {
             var normalized = files.NormalizeRelativePath(path);
             var rows = files.List(owner, normalized, sort, dir);
+            const int pageSize = 500;
+            var totalItems = rows.Count;
+            var dateTakenImages = rows.Count(x => x.IsImage);
+            var dateTakenKnown = rows.Count(x => x.IsImage && x.DateTaken.HasValue);
+            var browseSections = GalleryBrowseSections.Create(rows, sort);
+            var listingRevision = GalleryBrowseSections.Revision(rows, sort);
+            var pageCount = Math.Max(1,(int)Math.Ceiling(totalItems/(double)pageSize));
+            var pageNumber = int.TryParse(Request.Query["page"],out var requestedPage) ? Math.Clamp(requestedPage,1,pageCount) : 1;
+            if (!Request.Query.ContainsKey("page") && !string.IsNullOrEmpty(focus)) {
+                var focused=rows.Select((item,index)=>(item,index)).FirstOrDefault(x=>FileSystemService.PathsEqual(x.item.RelativePath,NormalizeFocusPath(focus)));
+                if(focused.item is not null)pageNumber=focused.index/pageSize+1;
+            }
+            rows=rows.Skip((pageNumber-1)*pageSize).Take(pageSize).ToList();
             IReadOnlyList<ShareLink> links = canManage
                 ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && x.CollectionId == null && x.TargetType == ShareTargetTypes.Folder && x.RelativePath == normalized && !x.IsRevoked).ToListAsync())
                     .OrderByDescending(x => x.CreatedAtUtc).ToList()
                 : [];
             IReadOnlyList<ShareLink> fileLinks = canManage
-                ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && x.TargetType == ShareTargetTypes.File && !x.IsRevoked).ToListAsync())
-                    .Where(link => string.Equals(FileSystemService.GetParent(link.RelativePath), normalized.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase))
+                ? (await db.ShareLinks.Where(x => x.OwnerUserId == owner.Id && (x.TargetType == ShareTargetTypes.File || x.TargetType == ShareTargetTypes.Selection) && !x.IsRevoked).ToListAsync())
+                    .Where(link => FileSystemService.PathsEqual(
+                        link.TargetType == ShareTargetTypes.Selection ? link.RelativePath : FileSystemService.GetParent(link.RelativePath),
+                        FileSystemService.ToLogicalPath(normalized)))
                     .OrderByDescending(link => link.CreatedAtUtc).ToList()
                 : [];
             var shareSummaries = await shareAudit.GetSummariesAsync(links.Concat(fileLinks).Select(link => link.Id));
-            var normalizedShareRoot = files.NormalizeRelativePath(shareRootPath).Replace('\\', '/');
-            var normalizedPath = normalized.Replace('\\', '/');
+            var normalizedShareRoot = FileSystemService.ToLogicalPath(files.NormalizeRelativePath(shareRootPath));
+            var normalizedPath = FileSystemService.ToLogicalPath(normalized);
             var parentPath = FileSystemService.GetParent(normalized);
-            if (mode == "share" && string.Equals(normalizedPath, normalizedShareRoot, StringComparison.OrdinalIgnoreCase))
+            if (mode == "private" && parentPath == "") parentPath = null;
+            if (mode == "share" && FileSystemService.PathsEqual(normalizedPath, normalizedShareRoot))
             {
                 parentPath = collection is null ? null : "";
             }
@@ -503,12 +643,21 @@ public sealed class GalleryController(
                 BrowseMode = mode,
                 ShareToken = token,
                 ShareRootPath = normalizedShareRoot,
+                ShareRootName = mode == "share" ? files.GetPathDisplayName(owner, normalizedShareRoot) : null,
                 CanManage = canManage,
                 FocusPath = NormalizeFocusPath(focus),
                 DefaultItemsPerRow = initialItemsPerRow ?? options.Value.DefaultItemsPerRow,
                 InitialItemsPerRow = initialItemsPerRow,
                 InitialViewMode = initialViewMode,
                 Items = rows,
+                PageNumber = pageNumber,
+                PageCount = pageCount,
+                TotalItems = totalItems,
+                DateTakenKnown = dateTakenKnown,
+                DateTakenImages = dateTakenImages,
+                BrowseSections = browseSections,
+                ListingRevision = listingRevision,
+                ItemOffset = (pageNumber - 1) * pageSize,
                 ShareLinks = links.Select(link => CreateShareManagementModel(link, shareSummaries)).ToList(),
                 FileShareLinks = fileLinks.Select(link => CreateShareManagementModel(link, shareSummaries)).ToList(),
                 IsCollectionShare = collection is not null,
@@ -621,6 +770,7 @@ public sealed class GalleryController(
         "name" => "name",
         "size" => "size",
         "date" => "date",
+        "taken" => "taken",
         _ => null
     };
 
@@ -662,7 +812,7 @@ public sealed class GalleryController(
         ApplicationUser? owner;
         ShareLink? shareLink = null;
         var normalized = files.NormalizeRelativePath(path);
-        switch (mode.ToLowerInvariant())
+        switch ((mode ?? "").ToLowerInvariant())
         {
             case "private":
                 if (!(User.Identity?.IsAuthenticated ?? false)) return null;
@@ -677,9 +827,14 @@ public sealed class GalleryController(
                 shareLink = link;
                 if (link.Collection is null)
                 {
-                    if (link.TargetType == ShareTargetTypes.File)
+                    if (link.TargetType == ShareTargetTypes.Selection) {
+                        if (!requireFile || !SelectedPaths(link).Any(p=>FileSystemService.PathsEqual(p,FileSystemService.ToLogicalPath(normalized)))) return null;
+                    }
+                    else if (link.TargetType == ShareTargetTypes.File)
                     {
-                        if (!string.Equals(link.RelativePath.Replace('\\', '/'), normalized.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)) return null;
+                        if (!FileSystemService.PathsEqual(
+                                FileSystemService.ToLogicalPath(link.RelativePath),
+                                FileSystemService.ToLogicalPath(normalized))) return null;
                     }
                     else if (!FileSystemService.IsWithinShareScope(link.RelativePath, normalized)) return null;
                 }
@@ -709,7 +864,7 @@ public sealed class GalleryController(
     private static string GetContentType(string path) => ContentTypes.TryGetContentType(path, out var type) ? type : "application/octet-stream";
     private string NormalizeFocusPath(string? focus)
     {
-        try { return files.NormalizeRelativePath(focus).Replace('\\', '/'); }
+        try { return FileSystemService.ToLogicalPath(files.NormalizeRelativePath(focus)); }
         catch (InvalidOperationException) { return ""; }
     }
     private static string CreateToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
@@ -743,7 +898,7 @@ public sealed class GalleryController(
 
             foreach (var file in files)
             {
-                if (!FileSystemService.IsIgnoredFileSystemEntry(file)) yield return file;
+                if (!FileSystemService.IsReparsePoint(file) && !FileSystemService.IsIgnoredFileSystemEntry(file)) yield return file;
             }
 
             string[] children;

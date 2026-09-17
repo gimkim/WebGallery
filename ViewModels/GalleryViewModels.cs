@@ -12,7 +12,8 @@ public sealed record GalleryItemViewModel(
     long Size,
     DateTimeOffset ModifiedUtc,
     string Extension,
-    IReadOnlyList<ThumbnailSourceViewModel> CoverImages);
+    IReadOnlyList<ThumbnailSourceViewModel> CoverImages,
+    DateTime? DateTaken = null);
 
 public sealed record ThumbnailSourceViewModel(string RelativePath, string CacheStamp);
 public sealed record GalleryBreadcrumbViewModel(string Path, string Name);
@@ -28,6 +29,7 @@ public sealed class GalleryViewModel
     public string BrowseMode { get; init; } = "private";
     public string? ShareToken { get; init; }
     public string ShareRootPath { get; init; } = "";
+    public string? ShareRootName { get; init; }
     public bool CanManage { get; init; }
     public string FocusPath { get; init; } = "";
     public int DefaultItemsPerRow { get; init; } = 8;
@@ -40,6 +42,15 @@ public sealed class GalleryViewModel
     public string CollectionName { get; init; } = "";
     public bool IsVirtualRoot { get; init; }
     public bool IsFileShare { get; init; }
+    public bool IsSelectionShare { get; init; }
+    public int PageNumber { get; init; } = 1;
+    public int PageCount { get; init; } = 1;
+    public int TotalItems { get; init; }
+    public int DateTakenKnown { get; init; }
+    public int DateTakenImages { get; init; }
+    public IReadOnlyList<GalleryBrowseSection> BrowseSections { get; init; } = [];
+    public string ListingRevision { get; init; } = "";
+    public int ItemOffset { get; init; }
     public IReadOnlyList<GalleryBreadcrumbViewModel> Breadcrumbs { get; init; } = [];
     public IReadOnlyList<ShareLinkManagementViewModel> FileShareLinks { get; init; } = [];
 }
@@ -137,6 +148,12 @@ public sealed class CooldownViewModel
 
 public sealed class AdminUserViewModel
 {
+    public long ThumbnailTotal { get; init; }
+    public long ThumbnailReady { get; init; }
+    public long MediumThumbnailReady { get; init; }
+    public long MediumThumbnailPending => ThumbnailTotal - MediumThumbnailReady;
+    public long ThumbnailPending => ThumbnailTotal - ThumbnailReady;
+    public bool RequirePasswordChange { get; init; }
     public required string Id { get; init; }
     public required string UserName { get; init; }
     public string DisplayName { get; init; } = "";
@@ -155,8 +172,8 @@ public sealed class AdminIndexViewModel
 {
     public required IReadOnlyList<AdminUserViewModel> Users { get; init; }
     public string AppTitle { get; init; } = "Gim Gallery";
-    public string Theme { get; init; } = "retro";
     public int ThumbnailConcurrency { get; init; } = ThumbnailQueueSettings.DefaultConcurrency;
+    public string ThumbnailDecodeMode { get; init; } = "full";
     public int LoginDelayAfterFailures { get; init; } = LoginSecuritySettings.DefaultDelayAfterFailures;
     public int LoginDelayIncrementSeconds { get; init; } = LoginSecuritySettings.DefaultDelayIncrementSeconds;
     public int LoginUserFailureLimit { get; init; } = LoginSecuritySettings.DefaultUserFailureLimit;

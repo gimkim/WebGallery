@@ -1,0 +1,8 @@
+# Increase thumbnail fetch concurrency on Windows NAS
+
+- Request: increase cache loading queue and deploy to Windows 11 NAS 192.168.1.29 through its shared folder; do not deploy Linux.
+- Changed maximumThumbnailRequests in wwwroot/js/site.js from 12 to 32. This is the bounded client fetch limit, not server generation concurrency. Requests can be cache hits or misses because cache existence is not known before requesting; server-side generation workers and queue remain unchanged. Visibility-only scheduling, low priority, rolling refill, folder cache-only probes and cancellation are preserved.
+- Updated AGENTS.md and project notes from 12 to 32; added tests/thumbnail-dispatcher.cjs.
+- Validation: Node syntax and mocked dispatcher test passed (32 active max, skip offscreen, refill on individual completion, abort all on navigation/viewer suspension). Viewer thumbnail and progress regressions passed; diff check passed. No build needed for this JS-only deployment. No authenticated browser throughput measurement, so no measured speedup claim.
+- Source JS initially matched Windows NAS JS SHA-256. Backed up application to \\192.168.1.29\c\Users\tatsa\web-data\backups\20260908-145935-thumbnail-32. Used temporary app_offline.htm during single-file copy, then removed it. Only deployed wwwroot/js/site.js; binary, appsettings.json and web.config match backup. Database/cache/keys untouched.
+- Verified HTTPS health status ok and served JS SHA-256 equals source using curl --resolve gimgim.ddns.net:443:192.168.1.29 with certificate validation and no proxy. This validates the Windows target, not the current public DNS Linux host. Linux container/config/state not changed.

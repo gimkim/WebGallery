@@ -24,8 +24,9 @@ Each worklog should include:
 
 ## History rules
 
+- [2026-09-08 UGREEN Gallery deployment](2026-09-08_034236_ugreen-gallery-deploy.md): CAMERA, persistent state migration, trusted /Gallery proxy.
+
 - Create a new file for every substantive editing session.
 - Do not silently edit old entries or use one rolling log file.
 - If an older entry is wrong, create a new timestamped correction that links to or names the old entry.
 - Do not describe build, browser, UI, deployment, or release validation unless it was actually performed.
-

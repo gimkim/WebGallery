@@ -1,0 +1,7 @@
+# Date Taken index I/O diagnosis
+
+- Date: 2026-09-17 19:31 Asia/Bangkok. User asks why date indexing appears to read entire files instead of header/EXIF.
+- Inspected DateTakenIndexer: non-RAW uses Image.IdentifyAsync; RAW uses a separate ExifTool subprocess. Added tests/MetadataReadAudit counting bytes returned by Stream.Read/ReadAsync plus JPEG marker/APP1-only comparison. This is application stream I/O, not uncached physical disk bytes or NAS CPU timing.
+- Real NAS samples through SMB: GIM_0203.jpg length11829306, Identify11829322 bytes (full file plus16-byte reread), APP1-only10358 bytes. GIM_0227-2.jpg length1964613, Identify1964629 bytes, APP1-only13171 bytes. Both contain DateTimeOriginal. Header parser needs TIFF payload after Exif prefix; initial diagnostic passed wrong prefix and was corrected before reporting successful dates. Repeated/warm timings are not cold-disk throughput benchmarks.
+- Cause confirmed for sampled JPEGs: Identify avoids pixel decoding but traverses full JPEG stream. There is also a20ms per-entry delay and per-entry DB update in indexer, but their time share was not profiled. RAW/PNG/TIFF I/O was not measured and no universal claim made.
+- Changed diagnostic harness and AGENTS clarification only. No production date-reader change, publish, deployment, cache/database reset or source-media modifications. A production fix should use bounded APP1/EXIF JPEG reads with safe lengths/seeks, cancellation and tests for endian/absent/corrupt metadata; do not blindly deploy diagnostic parser.

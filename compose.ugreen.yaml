@@ -1,0 +1,33 @@
+name: webgallery
+services:
+  webgallery:
+    build: .
+    image: webgallery:ugreen
+    container_name: webgallery
+    restart: unless-stopped
+    user: "1654:1654"
+    group_add: ["105"]
+    devices: ["/dev/dri:/dev/dri"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Docker
+      ASPNETCORE_URLS: http://+:8080
+      TZ: Asia/Bangkok
+      Gallery__DefaultRootPath: /gallery/CAMERA
+      ReverseProxy__Enabled: "true"
+      ReverseProxy__ForwardLimit: "1"
+      ReverseProxy__KnownProxies__0: "172.18.0.254"
+      ReverseProxy__AllowedHosts__0: gimgim.ddns.net
+    volumes:
+      - /volume1/webgallery/database:/data/database
+      - /volume1/webgallery/keys:/data/keys
+      - /volume1/webgallery/cache:/data/cache
+      - /mnt/disks/CAMERA:/gallery/CAMERA:ro
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    networks: [proxy]
+networks:
+  proxy:
+    external: true
+    name: deploy_default

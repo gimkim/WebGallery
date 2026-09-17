@@ -1,0 +1,7 @@
+# Selected shares, List names, breadcrumb width
+
+- Requests: share multiple selected files, List filename opens viewer, delay breadcrumb truncation until space is insufficient.
+- Added selection target and JSON allowlist via additive schema upgrade. Creation checks every file belongs to current owner/current folder, max1000. Guest rendering lists only allowlisted files; ResolveAccess rejects non-members and directory access. Selected ZIP checks every file individually; full folder ZIP denied. Share modal lists/revokes selection links. List media names activate existing image/video button. Removed100px desktop ancestor breadcrumb cap.
+- Changed Models/ShareLink.cs, Data/DatabaseInitializer.cs, Controllers/GalleryController.cs, GalleryViewModels.cs, Gallery Razor, site.js/site.css, AGENTS.md and tests/selected-share-browser.cjs. Added ignored local unshared-fixture.txt for access regression.
+- Tests: build/publish passed; real isolated ASP.NET + headless Edge authenticated List filename viewer, multi-file create and resulting modal, guest exact2 entries, selected download200, real excluded sibling404, parent404, full folder ZIP404. Local test server stopped. Video click path reused but not separately played. Breadcrumb layout not browser-tested.
+- NAS deployed/hash verified; backup web-data/backups/20260914-171933-index-deploy; persistent config/state retained. Linux publish not updated. Existing single-file shares unchanged; unsupported file names still download as their thumbnails do.

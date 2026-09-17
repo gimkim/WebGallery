@@ -1,0 +1,11 @@
+# Native drag hit-test performance follow-up
+
+2026-09-09 04:09 Asia/Bangkok.
+
+- Request: previous large-folder drag fix still freezes. This corrects the incomplete diagnosis in 2026-09-09_040200_large-grid-drag-feedback.md; do not treat synthetic handler timings as proof of native drag responsiveness.
+- Investigation: headless installed Edge, real local MVC login and Gallery page, mounted normal page scripts/observers, 2,000 cloned folder cards, native mouse drag crossing eight columns. Chromium trace before fix: HitTest 1,089 ms, ScriptDuration 2.8 ms, total main TaskDuration 1,548 ms. The fixture uses cloned local cards, not the user's NAS library or a realistic cold-thumbnail throughput benchmark.
+- Fix: internal moves temporarily use one fixed viewport input surface. Semantic targets are resolved from a geometry snapshot, invalidated on scroll/resize. No API call on hover; highlight remains idempotent. Surface removed on drop, native cancellation/end, navigation and pagehide. External OS file/folder uploads remain on their existing path.
+- Files: wwwroot/js/file-operations.js, wwwroot/css/site.css, tests/folder-drag-native.cjs, AGENTS.md, .agents/PROJECT_NOTES.md; synchronized both existing publish static-asset trees.
+- Validation: native repeat trace HitTest 78 ms; further run with per-target assertions 127 ms, total TaskDuration 564 ms. Verified destination highlight at every crossing, Escape cleanup and no mutation POST during drag. Existing real browser file mutation suite passes including actual thumbnail-origin folder move, zero accidental WebP uploads, preserved file bytes, confirmation, upload retry and cancellation. Synthetic idempotence regression and JavaScript syntax check pass. No new C# changes/build needed. Local test server stopped.
+- Deployment: Windows NAS application copy/hash verification completed; backup web-data/backups/20260909-040911-index-deploy. NAS appsettings/web.config and persistent data preserved. No Linux runtime deployment or Git push.
+- Remaining: production authenticated drag behavior on the user's browser/hardware is not directly measured; local native trace establishes a substantial improvement in the reproduced browser hit-testing bottleneck, not a guarantee of all runtime performance.

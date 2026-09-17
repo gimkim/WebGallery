@@ -5,8 +5,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace WebGallery.Services;
 
-public sealed class FileSystemService(GalleryDbContext? db = null)
+public sealed class FileSystemService(GalleryDbContext? db = null, GalleryIndexService? index = null)
 {
+    public static StringComparison PathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    public static StringComparer PathComparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif"
@@ -56,12 +61,11 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
             childPath = relative;
         }
 
-        var root = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
         var result = Path.GetFullPath(Path.Combine(root, childPath));
-        if (!result.StartsWith(root, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(result.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        if (!IsPathWithinRoot(root, result))
             throw new UnauthorizedAccessException("The requested path is outside the gallery root.");
-        return result;
+        return ResolveLinksWithinRoot(root, childPath);
     }
 
     public IReadOnlyList<GalleryItemViewModel> List(ApplicationUser owner, string? relativePath, string sort, string direction)
@@ -72,8 +76,8 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
         if (!Directory.Exists(folder) || (!string.IsNullOrEmpty(normalized) && IsIgnoredFileSystemEntry(folder)))
             throw new DirectoryNotFoundException();
 
-        var items = Directory.EnumerateFileSystemEntries(folder)
-            .Where(path => !IsIgnoredFileSystemEntry(path))
+        IEnumerable<GalleryItemViewModel> items = index?.Read(owner, normalized) ?? Directory.EnumerateFileSystemEntries(folder)
+            .Where(path => !IsReparsePoint(path) && !IsIgnoredFileSystemEntry(path))
             .Select(path =>
             {
                 var isDirectory = Directory.Exists(path);
@@ -91,28 +95,43 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
                     info.LastWriteTimeUtc,
                     extension.TrimStart('.').ToUpperInvariant(),
                     coverImages);
-            });
+            }).ToList();
 
         var descending = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
         items = sort.ToLowerInvariant() switch
         {
             "size" => descending ? items.OrderByDescending(x => x.IsDirectory).ThenByDescending(x => x.Size) : items.OrderByDescending(x => x.IsDirectory).ThenBy(x => x.Size),
             "date" => descending ? items.OrderByDescending(x => x.IsDirectory).ThenByDescending(x => x.ModifiedUtc) : items.OrderByDescending(x => x.IsDirectory).ThenBy(x => x.ModifiedUtc),
+            "taken" => SortTaken(items, descending),
             _ => descending ? items.OrderByDescending(x => x.IsDirectory).ThenByDescending(x => x.Name, StringComparer.CurrentCultureIgnoreCase) : items.OrderByDescending(x => x.IsDirectory).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
         };
         return items.ToList();
     }
 
-    public static bool IsImage(string extension) => ImageExtensions.Contains(extension);
+    public static bool IsImage(string extension) => ImageExtensions.Contains(extension) || RawPreview.Extensions.Contains(extension,StringComparer.OrdinalIgnoreCase);
+    public static bool HasThumbnail(string extension) => IsImage(extension) || IsVideo(extension);
     public static bool IsVideo(string extension) => VideoExtensions.Contains(extension);
     public static bool IsVirtualRoot(string? relativePath) => string.IsNullOrWhiteSpace(relativePath);
-    public static bool IsIgnoredFileName(string fileName) => IgnoredFileNames.Contains(fileName);
+    public static bool IsIgnoredFileName(string fileName) => IgnoredFileNames.Contains(fileName)
+        || System.Text.RegularExpressions.Regex.IsMatch(fileName, @"^\.webgallery-upload-[0-9a-f]{32}\.pending$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    public static bool PathsEqual(string? left, string? right) => string.Equals(left, right, PathComparison);
+    public static string ToLogicalPath(string value) => NormalizeScopeSeparators(value).Trim('/');
 
     public static bool IsHiddenOrSystem(string path)
     {
         try
         {
-            return (File.GetAttributes(path) & (FileAttributes.Hidden | FileAttributes.System)) != 0;
+            var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!OperatingSystem.IsWindows() && name.StartsWith(".", StringComparison.Ordinal)) return true;
+            var attributes = File.GetAttributes(path);
+            // Windows volume roots commonly carry Hidden/System. They are valid
+            // configured roots; their children still pass the normal filters.
+            var fullPath = Path.GetFullPath(path);
+            if (OperatingSystem.IsWindows()
+                && PathsEqual(Path.TrimEndingDirectorySeparator(fullPath),
+                    Path.TrimEndingDirectorySeparator(Path.GetPathRoot(fullPath)!)))
+                return false;
+            return (attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0;
         }
         catch (FileNotFoundException) { return true; }
         catch (DirectoryNotFoundException) { return true; }
@@ -124,6 +143,20 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
 
     public static bool IsIgnoredFileSystemEntry(string path) =>
         IsHiddenOrSystem(path) || IsIgnoredFileName(Path.GetFileName(path));
+
+    public static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
+        catch (UnauthorizedAccessException) { return true; }
+        catch (IOException) { return true; }
+        catch (ArgumentException) { return true; }
+        catch (NotSupportedException) { return true; }
+    }
 
     public GalleryItemViewModel? GetDirectoryItem(ApplicationUser owner, string relativePath)
     {
@@ -140,7 +173,7 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
             0,
             info.LastWriteTimeUtc,
             "",
-            GetFolderCoverImages(fullPath, normalized));
+            index?.Covers(owner, normalized) ?? GetFolderCoverImages(fullPath, normalized));
     }
 
     public GalleryItemViewModel? GetFileItem(ApplicationUser owner, string relativePath)
@@ -152,7 +185,24 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
         var extension = info.Extension;
         return new GalleryItemViewModel(info.Name, normalized.Replace(Path.DirectorySeparatorChar, '/'), false,
             IsImage(extension), IsVideo(extension), info.Length, info.LastWriteTimeUtc,
-            extension.TrimStart('.').ToUpperInvariant(), []);
+            extension.TrimStart('.').ToUpperInvariant(), [], GetIndexedDateTaken(owner, normalized, info));
+    }
+
+    private DateTime? GetIndexedDateTaken(ApplicationUser owner, string path, FileInfo info)
+    {
+        if (index is null || !index.TryRoot(owner, path, out var root, out var relative)) return null;
+        var key = GalleryIndexService.Key(relative);
+        var ticks = Database.GalleryIndexEntries.AsNoTracking().Where(x => x.RootId == root.Id && x.PathKey == key
+            && x.Size == info.Length && x.ModifiedTicks == info.LastWriteTimeUtc.Ticks).Select(x => x.DateTakenTicks).FirstOrDefault();
+        return ticks.HasValue ? new DateTime(ticks.Value) : null;
+    }
+
+    public static IOrderedEnumerable<GalleryItemViewModel> SortTaken(IEnumerable<GalleryItemViewModel> items, bool descending)
+    {
+        var knownFirst = items.OrderByDescending(x => x.IsDirectory).ThenBy(x => !x.DateTaken.HasValue);
+        return descending
+            ? knownFirst.ThenByDescending(x => x.DateTaken?.Ticks ?? x.ModifiedUtc.UtcTicks).ThenByDescending(x => x.Name, PathComparer)
+            : knownFirst.ThenBy(x => x.DateTaken?.Ticks ?? x.ModifiedUtc.UtcTicks).ThenBy(x => x.Name, PathComparer);
     }
 
     public string GetPathDisplayName(ApplicationUser owner, string relativePath)
@@ -181,6 +231,7 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
             return result;
         }
         var marker = RootMarker(rootId);
+        result.Clear();
         var rootName = Database.UserRoots.AsNoTracking().Where(root => root.Id == rootId && root.OwnerUserId == owner.Id)
             .Select(root => root.Name).SingleOrDefault() ?? "Folder";
         result.Add((marker, rootName));
@@ -207,7 +258,7 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
                 var available = Directory.Exists(root.PhysicalPath) && !IsIgnoredFileSystemEntry(root.PhysicalPath);
                 var modified = available ? new DirectoryInfo(root.PhysicalPath).LastWriteTimeUtc : root.CreatedAtUtc;
                 return new GalleryItemViewModel(root.Name, marker, true, false, false, 0,
-                    modified, "", available ? GetFolderCoverImages(root.PhysicalPath, marker) : []);
+                    modified, "", available ? index?.Covers(owner, marker) ?? GetFolderCoverImages(root.PhysicalPath, marker) : []);
             });
         var descending = string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase);
         items = sort.ToLowerInvariant() switch
@@ -240,7 +291,7 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
         try
         {
             return Directory.EnumerateFiles(folderPath)
-                .Where(path => IsImage(Path.GetExtension(path)) && !IsIgnoredFileSystemEntry(path))
+                .Where(path => HasThumbnail(Path.GetExtension(path)) && !IsReparsePoint(path) && !IsIgnoredFileSystemEntry(path))
                 .Take(4)
                 .Select(path =>
                 {
@@ -265,10 +316,46 @@ public sealed class FileSystemService(GalleryDbContext? db = null)
 
     public static bool IsWithinShareScope(string shareRoot, string requestedRelativePath)
     {
-        var root = shareRoot.Replace('\\', '/').Trim('/');
-        var requested = requestedRelativePath.Replace('\\', '/').Trim('/');
+        var root = NormalizeScopeSeparators(shareRoot).Trim('/');
+        var requested = NormalizeScopeSeparators(requestedRelativePath).Trim('/');
         return string.IsNullOrEmpty(root)
-            || string.Equals(root, requested, StringComparison.OrdinalIgnoreCase)
-            || requested.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase);
+            || string.Equals(root, requested, PathComparison)
+            || requested.StartsWith(root + "/", PathComparison);
+    }
+
+    private static string NormalizeScopeSeparators(string value) => OperatingSystem.IsWindows()
+        ? value.Replace('\\', '/')
+        : value;
+
+    private static bool IsPathWithinRoot(string root, string candidate)
+    {
+        var normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedCandidate = candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return PathsEqual(normalizedRoot, normalizedCandidate)
+            || normalizedCandidate.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, PathComparison);
+    }
+
+    private static string ResolveLinksWithinRoot(string root, string childPath)
+    {
+        var canonicalRoot = ResolveLinkTarget(root);
+        var current = canonicalRoot;
+        foreach (var segment in childPath.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var next = Path.Combine(current, segment);
+            next = ResolveLinkTarget(next);
+            if (!IsPathWithinRoot(canonicalRoot, next))
+                throw new UnauthorizedAccessException("The requested path resolves outside the gallery root.");
+            current = next;
+        }
+        return Path.GetFullPath(current);
+    }
+
+    private static string ResolveLinkTarget(string path)
+    {
+        FileSystemInfo info = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path);
+        if (string.IsNullOrEmpty(info.LinkTarget)) return Path.GetFullPath(path);
+        var target = info.ResolveLinkTarget(returnFinalTarget: true)
+            ?? throw new UnauthorizedAccessException("The requested symbolic link cannot be resolved.");
+        return Path.GetFullPath(target.FullName);
     }
 }

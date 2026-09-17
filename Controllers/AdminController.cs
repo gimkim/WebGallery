@@ -20,11 +20,39 @@ public sealed class AdminController(
     IOptions<GalleryOptions> galleryOptions,
     ThumbnailQueueSettings thumbnailQueueSettings,
     LoginSecuritySettings loginSecuritySettings,
-    ILogger<AdminController> logger) : Controller
+    ILogger<AdminController> logger, GalleryIndexService galleryIndex, RemoteResizer remoteResizer,
+    ThumbnailService thumbnails) : Controller
 {
+    private static readonly SemaphoreSlim RemoteSettingsSaveGate = new(1,1);
+    private static readonly SemaphoreSlim IndexSettingsSaveGate = new(1,1);
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveIndexingSettings(int dateTakenWorkers, [FromServices] DateTakenIndexer indexer)
+    {
+        if (dateTakenWorkers is < 1 or > 16) { TempData["Error"] = "Indexing workers must be between 1 and 16."; return RedirectToAction(nameof(Index)); }
+        await IndexSettingsSaveGate.WaitAsync(HttpContext.RequestAborted);
+        try {
+            await UpsertSettingAsync("DateTakenWorkers", dateTakenWorkers);
+            await db.SaveChangesAsync();
+            indexer.SetWorkers(dateTakenWorkers);
+        } finally { IndexSettingsSaveGate.Release(); }
+        TempData["Success"] = "Indexing workers saved. New reads use the updated limit immediately; existing reads may finish.";
+        return RedirectToAction(nameof(Index));
+    }
+    [HttpGet]
+    public async Task<IActionResult> IndexingProgress(CancellationToken cancellationToken) {
+        Response.Headers.CacheControl = "no-store";
+        return Json(await galleryIndex.IndexProgressAsync(cancellationToken));
+    }
+    [HttpGet]
+    public async Task<IActionResult> ThumbnailProgress(CancellationToken cancellationToken) {
+        Response.Headers.CacheControl = "no-store";
+        return Json(await galleryIndex.ThumbnailProgressAsync(thumbnails.Signature, thumbnails.MediumSignature, cancellationToken));
+    }
     public async Task<IActionResult> Index()
     {
         var users = await userManager.Users.Include(x => x.Roots).OrderBy(x => x.UserName).ToListAsync();
+        var thumbnailCounts = await galleryIndex.ThumbnailProgressAsync(thumbnails.Signature, thumbnails.MediumSignature, HttpContext.RequestAborted);
         var rows = new List<AdminUserViewModel>();
         foreach (var user in users)
         {
@@ -33,13 +61,16 @@ public sealed class AdminController(
                 Id = user.Id,
                 UserName = user.UserName ?? "",
                 DisplayName = user.DisplayName,
+                ThumbnailTotal = thumbnailCounts.GetValueOrDefault(user.Id)?.Total ?? 0,
+                ThumbnailReady = thumbnailCounts.GetValueOrDefault(user.Id)?.SmallReady ?? 0,
+                MediumThumbnailReady = thumbnailCounts.GetValueOrDefault(user.Id)?.MediumReady ?? 0,
                 Roots = user.Roots.OrderBy(root => root.SortOrder).ThenBy(root => root.Id)
                     .Select(root => new AdminUserRootViewModel { Id = root.Id, Name = root.Name, PhysicalPath = root.PhysicalPath }).ToList(),
-                IsAdmin = await userManager.IsInRoleAsync(user, DatabaseInitializer.AdminRole)
+                IsAdmin = await userManager.IsInRoleAsync(user, DatabaseInitializer.AdminRole),
+                RequirePasswordChange = user.RequirePasswordChange
             });
         }
         var title = (await db.AppSettings.FindAsync("AppTitle"))?.Value ?? galleryOptions.Value.AppTitle;
-        var theme = NormalizeTheme((await db.AppSettings.FindAsync("Theme"))?.Value) ?? "retro";
         var concurrencyValue = (await db.AppSettings.FindAsync("ThumbnailConcurrency"))?.Value;
         var concurrency = int.TryParse(concurrencyValue, out var parsedConcurrency)
             ? ThumbnailQueueSettings.Clamp(parsedConcurrency)
@@ -49,8 +80,8 @@ public sealed class AdminController(
         {
             Users = rows,
             AppTitle = title,
-            Theme = theme,
             ThumbnailConcurrency = concurrency,
+            ThumbnailDecodeMode = thumbnailQueueSettings.ReducedJpeg ? "jpeg-idct" : "full",
             LoginDelayAfterFailures = login.DelayAfterFailures,
             LoginDelayIncrementSeconds = login.DelayIncrementSeconds,
             LoginUserFailureLimit = login.UserFailureLimit,
@@ -59,6 +90,38 @@ public sealed class AdminController(
             LoginIpCooldownMinutes = (int)login.IpCooldown.TotalMinutes
         });
     }
+
+    [HttpGet]
+    public IActionResult ResizerStatus() { Response.Headers.CacheControl = "no-store"; return Json(new { status = remoteResizer.Status, canRetry = remoteResizer.Enabled && !remoteResizer.IsAvailable, checkedAt = remoteResizer.LastCheckedUtc, decodeMode = remoteResizer.DecodeMode, workers = remoteResizer.Workers }); }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SaveRemoteSettings(string remoteDecodeMode, int remoteWorkers, int remoteBackgroundWorkers)
+    {
+        if (!ModelState.IsValid || remoteDecodeMode is not ("full" or "jpeg-idct") || remoteWorkers is < 1 or > 16 || remoteBackgroundWorkers < 0 || remoteBackgroundWorkers > remoteWorkers) {
+            TempData["Error"] = "Choose a valid decoding mode, 1–16 concurrent jobs, and background workers between 0 and the concurrent job limit.";
+            return RedirectToAction(nameof(Index));
+        }
+        await RemoteSettingsSaveGate.WaitAsync(HttpContext.RequestAborted);
+        try {
+            var modeSetting = await db.AppSettings.FindAsync("ResizerServiceDecodeMode");
+            if (modeSetting is null) db.AppSettings.Add(new AppSetting { Key = "ResizerServiceDecodeMode", Value = remoteDecodeMode });
+            else modeSetting.Value = remoteDecodeMode;
+            await UpsertSettingAsync("ResizerServiceWorkers",remoteWorkers);
+            await UpsertSettingAsync("ResizerServiceBackgroundWorkers",remoteBackgroundWorkers);
+            await db.SaveChangesAsync(HttpContext.RequestAborted);
+            remoteResizer.UpdateDecodeSettings(remoteDecodeMode,remoteWorkers,remoteBackgroundWorkers);
+            TempData["Success"] = "Remote thumbnail settings saved. New jobs use these settings immediately; no restart is needed.";
+        } catch (DbUpdateException ex) {
+            logger.LogError(ex,"Could not save remote thumbnail settings");
+            TempData["Error"] = "Could not save remote thumbnail settings. Runtime settings were not changed.";
+        } finally { RemoteSettingsSaveGate.Release(); }
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult RetryResizer() { remoteResizer.RetryNow(); TempData["Success"] = "Thumbnail service connection check requested."; return RedirectToAction(nameof(Index)); }
 
     [HttpGet]
     public async Task<IActionResult> Logs(
@@ -142,7 +205,7 @@ public sealed class AdminController(
                 ShareLabel = item.ShareLink?.Collection?.Name
                     ?? (item.ShareLink?.TargetType == ShareTargetTypes.File
                         ? Path.GetFileName(item.ShareLink.RelativePath)
-                        : string.IsNullOrWhiteSpace(item.ShareLink?.RelativePath) ? "Home" : item.ShareLink.RelativePath.Replace('\\', '/')),
+                        : string.IsNullOrWhiteSpace(item.ShareLink?.RelativePath) ? "Home" : FileSystemService.ToLogicalPath(item.ShareLink.RelativePath)),
                 TargetPath = item.TargetPath,
                 Details = item.Details,
                 ItemCount = item.ItemCount,
@@ -168,7 +231,7 @@ public sealed class AdminController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> CreateUser(string userName, string displayName, string? rootFolder, string password, bool isAdmin = false)
+    public async Task<IActionResult> CreateUser(string userName, string displayName, string? rootFolder, string password, bool isAdmin = false, bool requirePasswordChange = true)
     {
         var hasRoot = !string.IsNullOrWhiteSpace(rootFolder);
         if (hasRoot && !TryValidateRoot(rootFolder!, out rootFolder, out var rootError))
@@ -177,6 +240,7 @@ public sealed class AdminController(
             return RedirectToAction(nameof(Index));
         }
         var user = new ApplicationUser { UserName = userName.Trim(), DisplayName = displayName.Trim(), RootFolder = hasRoot ? rootFolder! : "" };
+        user.RequirePasswordChange = requirePasswordChange;
         var result = await userManager.CreateAsync(user, password);
         if (result.Succeeded && hasRoot)
         {
@@ -190,11 +254,12 @@ public sealed class AdminController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> UpdateUser(string id, string displayName, bool isAdmin, string? newPassword)
+    public async Task<IActionResult> UpdateUser(string id, string displayName, bool isAdmin, string? newPassword, bool requirePasswordChange = false)
     {
         var user = await userManager.FindByIdAsync(id);
         if (user is null) return NotFound();
         user.DisplayName = displayName.Trim();
+        user.RequirePasswordChange = requirePasswordChange;
         var result = await userManager.UpdateAsync(user);
         if (result.Succeeded)
         {
@@ -224,8 +289,8 @@ public sealed class AdminController(
 
         try
         {
-            if (await db.UserRoots.AnyAsync(root => root.OwnerUserId == id && root.PhysicalPath == physicalPath))
-                return UserRootFailure(id, $"The folder is already assigned to {user.UserName}: {physicalPath}");
+            if (await db.UserRoots.AnyAsync(root => root.OwnerUserId == id))
+                return UserRootFailure(id, "Each user can have only one root folder. Edit the existing root instead.");
 
             var sortOrder = await db.UserRoots.Where(root => root.OwnerUserId == id)
                 .Select(root => (int?)root.SortOrder).MaxAsync() ?? -1;
@@ -248,6 +313,17 @@ public sealed class AdminController(
         }
     }
 
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreatePasswordLink(string id)
+    {
+        var user=await userManager.FindByIdAsync(id);
+        if(user is null)return NotFound();
+        var token=await userManager.GeneratePasswordResetTokenAsync(user);
+        TempData["PasswordLink"]=Url.Action("ResetPassword","Account",new { userId=user.Id,token },Request.Scheme);
+        TempData["PasswordLinkUser"]=user.UserName;
+        return RedirectToAction(nameof(Index));
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> UpdateUserRoot(int rootId, string physicalPath, string? name)
@@ -267,7 +343,7 @@ public sealed class AdminController(
         var oldPath = root.PhysicalPath;
         root.PhysicalPath = physicalPath;
         root.Name = NormalizeRootName(name, physicalPath);
-        if (root.Owner is not null && string.Equals(root.Owner.RootFolder, oldPath, StringComparison.OrdinalIgnoreCase))
+        if (root.Owner is not null && FileSystemService.PathsEqual(root.Owner.RootFolder, oldPath))
             root.Owner.RootFolder = physicalPath;
         await db.SaveChangesAsync();
         TempData["Success"] = "Folder saved.";
@@ -312,24 +388,34 @@ public sealed class AdminController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> SaveSettings(
         string appTitle,
-        string theme,
         int thumbnailConcurrency,
         int loginDelayAfterFailures,
         int loginDelayIncrementSeconds,
         int loginUserFailureLimit,
         int loginUserCooldownMinutes,
         int loginIpFailureLimit,
-        int loginIpCooldownMinutes)
+        int loginIpCooldownMinutes,
+        string thumbnailDecodeMode = "full",
+        int backgroundThumbnailWorkers = 0, int indexReconcileHours = 24)
     {
+        if (indexReconcileHours is < 1 or > 168)
+        {
+            TempData["Error"] = "Index reconciliation must be between 1 and 168 hours.";
+            return RedirectToAction(nameof(Index));
+        }
+        if (backgroundThumbnailWorkers is < 0 or > 16)
+        {
+            TempData["Error"] = "Background thumbnail workers must be between 0 and 16.";
+            return RedirectToAction(nameof(Index));
+        }
+        if (thumbnailDecodeMode is not ("full" or "jpeg-idct"))
+        {
+            TempData["Error"] = "Choose a valid thumbnail decoding method.";
+            return RedirectToAction(nameof(Index));
+        }
         if (thumbnailConcurrency is < ThumbnailQueueSettings.MinimumConcurrency or > ThumbnailQueueSettings.MaximumConcurrency)
         {
             TempData["Error"] = $"Thumbnail concurrency must be between {ThumbnailQueueSettings.MinimumConcurrency} and {ThumbnailQueueSettings.MaximumConcurrency}.";
-            return RedirectToAction(nameof(Index));
-        }
-        var normalizedTheme = NormalizeTheme(theme);
-        if (normalizedTheme is null)
-        {
-            TempData["Error"] = "Theme must be Retro or Modern.";
             return RedirectToAction(nameof(Index));
         }
         if (!LoginSecuritySettings.TryCreate(
@@ -349,25 +435,53 @@ public sealed class AdminController(
         if (setting is null) db.AppSettings.Add(new AppSetting { Key = "AppTitle", Value = appTitle.Trim() });
         else setting.Value = appTitle.Trim();
         var concurrencySetting = await db.AppSettings.FindAsync("ThumbnailConcurrency");
+        var decodeSetting = await db.AppSettings.FindAsync("ThumbnailDecodeMode");
+        if (decodeSetting is null) db.AppSettings.Add(new AppSetting { Key = "ThumbnailDecodeMode", Value = thumbnailDecodeMode });
+        else decodeSetting.Value = thumbnailDecodeMode;
         if (concurrencySetting is null)
             db.AppSettings.Add(new AppSetting { Key = "ThumbnailConcurrency", Value = thumbnailConcurrency.ToString() });
         else
             concurrencySetting.Value = thumbnailConcurrency.ToString();
-        var themeSetting = await db.AppSettings.FindAsync("Theme");
-        if (themeSetting is null)
-            db.AppSettings.Add(new AppSetting { Key = "Theme", Value = normalizedTheme });
-        else
-            themeSetting.Value = normalizedTheme;
         await UpsertSettingAsync("LoginDelayAfterFailures", loginDelayAfterFailures);
         await UpsertSettingAsync("LoginDelayIncrementSeconds", loginDelayIncrementSeconds);
         await UpsertSettingAsync("LoginUserFailureLimit", loginUserFailureLimit);
         await UpsertSettingAsync("LoginUserCooldownMinutes", loginUserCooldownMinutes);
         await UpsertSettingAsync("LoginIpFailureLimit", loginIpFailureLimit);
         await UpsertSettingAsync("LoginIpCooldownMinutes", loginIpCooldownMinutes);
+        await UpsertSettingAsync("BackgroundThumbnailWorkers", backgroundThumbnailWorkers);
+        await UpsertSettingAsync("IndexReconcileHours", indexReconcileHours);
         await db.SaveChangesAsync();
+        galleryIndex.SetReconcileHours(indexReconcileHours);
         thumbnailQueueSettings.Update(thumbnailConcurrency);
+        thumbnailQueueSettings.SetBackgroundWorkers(backgroundThumbnailWorkers);
+        thumbnailQueueSettings.SetReducedJpeg(thumbnailDecodeMode == "jpeg-idct");
         loginSecuritySettings.Update(loginOptions);
         TempData["Success"] = "System settings saved.";
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult RebuildIndex()
+    {
+        galleryIndex.Rebuild();
+        TempData["Success"] = "Re-index all queued: all folders will be rescanned and Date Taken will be read again in the background. Existing listings remain available. Original files and thumbnail caches are unchanged. Refresh the gallery after indexing to see updated dates.";
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult RefreshIndexFolder(int rootId, string? relativePath)
+    {
+        if (!db.UserRoots.Any(x => x.Id == rootId)) return NotFound();
+        try
+        {
+            var relative = new FileSystemService().NormalizeRelativePath(relativePath);
+            galleryIndex.Request(rootId, FileSystemService.ToLogicalPath(relative));
+            TempData["Success"] = "Folder index refresh queued.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        { TempData["Error"] = "Enter a valid path relative to the selected root."; }
         return RedirectToAction(nameof(Index));
     }
 
@@ -378,12 +492,6 @@ public sealed class AdminController(
         else setting.Value = value.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static string? NormalizeTheme(string? value) => value?.Trim().ToLowerInvariant() switch
-    {
-        "retro" => "retro",
-        "modern" => "modern",
-        _ => null
-    };
 
     private static string NormalizeEventType(string? value)
     {
@@ -472,17 +580,21 @@ public sealed class AdminController(
         }
         catch (UnauthorizedAccessException)
         {
-            error = $"Access was denied for {path}. Grant the IIS application pool identity Read & Execute permission on this folder and its contents.";
+            error = OperatingSystem.IsWindows()
+                ? $"Access was denied for {path}. Grant the IIS application pool identity Read & Execute permission on this folder and its contents."
+                : $"Access was denied for {path}. Grant the container user read and directory-traverse permission on the mounted folder.";
             return false;
         }
         catch (SecurityException)
         {
-            error = $"Windows security blocked access to {path}. Grant the IIS application pool identity Read & Execute permission.";
+            error = OperatingSystem.IsWindows()
+                ? $"Windows security blocked access to {path}. Grant the IIS application pool identity Read & Execute permission."
+                : $"The operating system blocked access to {path}. Check the bind mount and container-user permissions.";
             return false;
         }
         catch (IOException exception)
         {
-            error = $"Windows could not open {path}: {exception.Message}";
+            error = $"The operating system could not open {path}: {exception.Message}";
             return false;
         }
         catch (ArgumentException)

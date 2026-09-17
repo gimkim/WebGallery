@@ -1,9 +1,29 @@
 WebGallery - Windows 11 / IIS deployment
 =========================================
 
-This ZIP is a clean framework-dependent .NET 10 deployment. Its files are the
+FILE MANAGEMENT UPDATE
+Each account has one root; existing root IDs/share links/collections are retained.
+Create/upload/move require Modify permission for the specific IIS application
+pool identity on the intended media root. Read & Execute remains sufficient
+for browse/download-only roots. Do not grant write access to an entire drive
+or all IIS applications simply to enable these operations.
+Uploads use 4 MiB chunks, retries and uniquely named private staging; ordinary
+.part files are unaffected. Staging expires after 24 hours and is checked every
+five minutes. Allow free disk space for staging and destination publication.
+The upload panel survives SPA navigation in the same tab, not page reload or
+an IIS restart. Completed files are never removed when a batch is cancelled.
+New users must change passwords by default. Management can require this for
+existing users and create single-use password reset links expiring in one hour.
+
+This is a clean framework-dependent .NET 10 deployment. Its files are the
 IIS application root. It does not contain users, passwords, SQLite production
 data, thumbnail cache, or gallery images.
+
+Create this output from source with:
+
+  dotnet publish WebGallery.csproj -p:PublishProfile=Windows-IIS
+
+The result is under publish\windows-iis.
 
 Prerequisites
 -------------
@@ -76,3 +96,7 @@ The application does not package or update those third-party executables.
 For HTTPS/public access, configure the IIS site binding, certificate, DNS,
 firewall, and router or tunnel separately. Do not expose this application over
 unencrypted HTTP on the Internet.
+
+Health check
+------------
+After deployment, /Gallery/health returns JSON with status "ok" without login.

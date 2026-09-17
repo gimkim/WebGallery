@@ -1,0 +1,12 @@
+# Fix offscreen skeleton rendering during folder dragging
+
+2026-09-09 05:50 Asia/Bangkok.
+
+- Request: dragging still stutters severely after previous two fixes. Corrects the incomplete reproduction in 2026-09-09_040930_native-drag-hittest.md: plain cloned folder icons did not exercise cover thumbnail skeletons.
+- Reproduction: real local MVC login, normal mounted Gallery scripts/observers, 2,000 cloned folders each with actual four-tile cover markup (8,000 slots), thumbnail route returning a local PNG fixture, native mouse drag across eight columns. Not production-library content or authenticated NAS browser QA.
+- Before: each crossing took 2,999–4,285 ms; trace UpdateLayoutTree about13.6 seconds, main RecalcStyleDuration13.44 seconds, PrePaint8.30 seconds. Offscreen lazy skeletons still generated animated promoted pseudo-elements despite visibility-bounded network work.
+- Fix: thumbnail-visible follows the existing thumbnail IntersectionObserver. Offscreen skeletons now have content:none and no animation/will-change layer. Only visible loading hosts generate shimmer. No-observer fallback is static. Reduced-motion override matches the new combined selector. Native drag retained; contemplated pointer replacement was not needed after identifying the animation bottleneck.
+- Changed: wwwroot/js/site.js, wwwroot/css/site.css, tests/folder-drag-native.cjs, AGENTS.md, .agents/PROJECT_NOTES.md; both existing publish trees' static assets synchronized.
+- Validation: same four-cover fixture after fix RecalcStyleDuration4.8–5.8 ms, main TaskDuration0.64–0.78 seconds; first crossing185–198 ms, subsequent5–83 ms. Assertions verify target highlight, Escape cleanup, no write POST during hover, no offscreen animation or pseudo-element, newly visible loading hosts animate after scroll, reduced motion disables animation. Real file mutation browser suite and JS syntax check pass. These are local trace measurements, not a guarantee of identical timing on user hardware.
+- Deployment: Windows NAS backup/copy/hash verified at web-data/backups/20260909-054945-index-deploy, configuration and persistent state preserved. HTTPS /gallery/health returns ok; HTTP-served site.js and site.css hashes both match source. No C# change/build, Linux runtime deployment or Git push. Local test server stopped.
+- Remaining: user browser's production authenticated drag responsiveness still requires confirmation; no claim that prior native-HitTest-only fix solved this case.

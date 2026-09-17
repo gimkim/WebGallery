@@ -17,3 +17,7 @@ bootstrap-admin.txt
 *.log
 *.user
 *.suo
+.env
+*.env.local
+webgallery.env
+.codex-remote-attachments/

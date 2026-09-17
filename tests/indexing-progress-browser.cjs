@@ -1,0 +1,21 @@
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const {chromium}=require(require.resolve('playwright',{paths:['C:/Users/tatsa/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules']}));
+(async()=>{const b=await chromium.launch({channel:'msedge',headless:true});try{
+ const p=await b.newPage(),base='http://127.0.0.1:5294';await p.goto(base+'/Account/Login');
+ await p.locator('[name=UserName]').fill('admin');await p.locator('[name=Password]').fill(fs.readFileSync('App_Data/spa-smoke/bootstrap-admin.txt','utf8').match(/Password: (.+)/)[1].trim());
+ await p.getByRole('button',{name:'Sign in',exact:true}).click();await p.waitForSelector('#gallery-sort-select');await p.goto(base+'/Admin');
+ await p.waitForFunction(()=>document.querySelector('[data-index-summary]')?.textContent.includes('checked'));
+ const response=await p.request.get(base+'/Admin/IndexingProgress'),s=await response.json();assert.equal(response.status(),200);assert.match(response.headers()['cache-control'],/no-store/);
+ assert.equal(s.total,s.completed+s.pending+s.retry);assert.equal(s.completed,s.withDate+s.withoutDate);
+ assert(await p.locator('[data-index-details]').textContent());assert(await p.getByRole('button',{name:'Re-index all',exact:true}).isVisible());
+ const guest=await b.newContext();assert.notEqual((await guest.request.get(base+'/Admin/IndexingProgress',{maxRedirects:0})).status(),200);await guest.close();
+ const form=p.locator('form[action$="/SaveIndexingSettings"]');
+ await form.locator('[name=dateTakenWorkers]').fill('2');
+ await Promise.all([p.waitForResponse(r=>r.url().includes('SaveIndexingSettings')&&r.request().method()==='POST'),form.getByRole('button').click()]);
+ await p.goto(base+'/Admin');assert.equal(await p.locator('[name=dateTakenWorkers]').inputValue(),'2');
+ await p.locator('[name=dateTakenWorkers]').fill('4');
+ await Promise.all([p.waitForResponse(r=>r.url().includes('SaveIndexingSettings')&&r.request().method()==='POST'),p.locator('form[action$="/SaveIndexingSettings"]').getByRole('button').click()]);
+ await p.goto(base+'/Admin');assert.equal(await p.locator('[name=dateTakenWorkers]').inputValue(),'4');
+ console.log('PASS saved runtime indexing worker setting 2 then restored4');
+ console.log('PASS Management counters/bar rendered from authorized no-store API; category totals balance; guest denied');
+}finally{await b.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -16,9 +16,6 @@ public sealed class MediaService
 
     private const int MaxSegmentBytes = 128 * 1024 * 1024;
     private const int MaxSubtitleBytes = 32 * 1024 * 1024;
-    private const int MaxConcurrentMediaJobs = 16;
-    private const int MaxConcurrentQuickSyncJobs = 2;
-    private const int EncoderThreads = 16;
     // Segments are encoded independently and appended to one MSE timeline.
     // B-frame reordering gives video a negative decode timestamp while copied
     // audio starts at zero; correcting that with one fragment-wide timestamp
@@ -45,14 +42,15 @@ public sealed class MediaService
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly GalleryOptions _options;
     private readonly ILogger<MediaService> _logger;
-    private readonly SemaphoreSlim _segmentSlots = new(MaxConcurrentMediaJobs, MaxConcurrentMediaJobs);
-    private readonly SemaphoreSlim _quickSyncSlots = new(MaxConcurrentQuickSyncJobs, MaxConcurrentQuickSyncJobs);
+    private readonly SemaphoreSlim _segmentSlots;
+    private readonly SemaphoreSlim _quickSyncSlots;
+    private readonly int _encoderThreads;
     private readonly SemaphoreSlim _nvidiaProbeLock = new(1, 1);
     private readonly SemaphoreSlim _quickSyncProbeLock = new(1, 1);
-    private readonly ConcurrentDictionary<string, ProbeDocument> _probeCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, IReadOnlyList<KeyframePoint>> _keyframeCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ProbeDocument> _probeCache = new(FileSystemService.PathComparer);
+    private readonly ConcurrentDictionary<string, IReadOnlyList<KeyframePoint>> _keyframeCache = new(FileSystemService.PathComparer);
     private readonly ConcurrentDictionary<string, SubtitleProgressState> _subtitleProgress = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, byte> _quickSyncDecodeFailures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _quickSyncDecodeFailures = new(FileSystemService.PathComparer);
     private int _nvidiaEncoderState = -1;
     private int _quickSyncEncoderState = -1;
 
@@ -60,6 +58,11 @@ public sealed class MediaService
     {
         _options = options.Value;
         _logger = logger;
+        var mediaJobs = Math.Clamp(_options.MaxConcurrentMediaJobs, 1, 32);
+        var quickSyncJobs = Math.Clamp(_options.MaxConcurrentQuickSyncJobs, 1, mediaJobs);
+        _encoderThreads = Math.Clamp(_options.MediaEncoderThreads, 1, 32);
+        _segmentSlots = new SemaphoreSlim(mediaJobs, mediaJobs);
+        _quickSyncSlots = new SemaphoreSlim(quickSyncJobs, quickSyncJobs);
     }
 
     public async Task<MediaMetadataDto> GetMetadataAsync(string path, CancellationToken cancellationToken)
@@ -551,8 +554,8 @@ public sealed class MediaService
             "-hide_banner",
             "-loglevel", "error",
             "-nostdin",
-            "-threads", EncoderThreads.ToString(CultureInfo.InvariantCulture),
-            "-filter_threads", EncoderThreads.ToString(CultureInfo.InvariantCulture)
+            "-threads", _encoderThreads.ToString(CultureInfo.InvariantCulture),
+            "-filter_threads", _encoderThreads.ToString(CultureInfo.InvariantCulture)
         };
         if (seekPlan is SeekPlan fastSeek && fastSeek.InputSeconds > 0)
         {
@@ -665,7 +668,7 @@ public sealed class MediaService
                     "-maxrate", FormatKbps(encoding.MaxRateBitsPerSecond),
                     "-bufsize", FormatKbps(encoding.BufferBitsPerSecond),
                     "-bf", EncoderBFrames.ToString(CultureInfo.InvariantCulture),
-                    "-threads:v", EncoderThreads.ToString(CultureInfo.InvariantCulture),
+                    "-threads:v", _encoderThreads.ToString(CultureInfo.InvariantCulture),
                     "-pix_fmt", "yuv420p"
                 ]);
             }
@@ -674,7 +677,7 @@ public sealed class MediaService
                 VideoEncoderMode.Nvidia => "NVENC",
                 VideoEncoderMode.QuickSyncHardware => "Intel Quick Sync hardware decode/encode",
                 VideoEncoderMode.QuickSync => "Intel Quick Sync encode",
-                _ => $"libx264/{EncoderThreads} threads"
+                _ => $"libx264/{_encoderThreads} threads"
             };
             _logger.LogDebug(
                 "Re-encoding segment with {Encoder} as H.264 {Profile}@{Level}, quality {Quality}, maxrate {MaxRateKbps} kbps",
@@ -754,7 +757,7 @@ public sealed class MediaService
                     "-c:v", "h264_nvenc",
                     "-preset", "p4",
                     "-f", "null",
-                    "NUL"
+                    GetNullOutputPath()
                 }, redirectStandardOutput: false),
                 EnableRaisingEvents = true
             };
@@ -832,7 +835,7 @@ public sealed class MediaService
                     "-bf", EncoderBFrames.ToString(CultureInfo.InvariantCulture),
                     "-pix_fmt", "nv12",
                     "-f", "null",
-                    "NUL"
+                    GetNullOutputPath()
                 }, redirectStandardOutput: false),
                 EnableRaisingEvents = true
             };
@@ -1424,6 +1427,8 @@ public sealed class MediaService
 
     private static bool IsBrowserCompatibleAudio(ProbeStream stream) =>
         string.Equals(stream.CodecName, "aac", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetNullOutputPath() => OperatingSystem.IsWindows() ? "NUL" : "/dev/null";
 
     private static bool IsSupportedSubtitle(ProbeStream stream) =>
         stream.CodecName is not null && TextSubtitleCodecs.Contains(stream.CodecName);

@@ -9,10 +9,25 @@
 
 <section class="panel admin-section">
     <h2>System</h2>
+    @inject WebGallery.Services.ThumbnailQueueSettings ThumbnailSettings
+    @inject WebGallery.Services.BackgroundThumbnailService BackgroundThumbnails
+    @inject WebGallery.Services.RemoteResizer RemoteResizer
+    <div data-resizer-status-url="@Url.Action("ResizerStatus")"><p>Thumbnail service: <strong data-resizer-status>@RemoteResizer.Status</strong></p><small data-resizer-checked>Last checked: @(RemoteResizer.LastCheckedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "Not yet")</small></div>
+    <form asp-action="RetryResizer" method="post" data-resizer-retry hidden="@(!RemoteResizer.Enabled || RemoteResizer.IsAvailable)"><button type="submit">Retry connection now</button></form>
+    <form asp-action="SaveRemoteSettings" method="post" class="admin-grid-form">
+        <label>Remote thumbnail decoding<select name="remoteDecodeMode" required><option value="full" selected="@(RemoteResizer.DecodeMode == "full")">Full decode (original method)</option><option value="jpeg-idct" selected="@(RemoteResizer.DecodeMode == "jpeg-idct")">Faster JPEG (reduced IDCT)</option></select><small>Independent from local decoding. Faster JPEG reduces decoding work for large JPEGs; other formats use full decoding. Each remote mode has its own cache identity.</small></label>
+        <label>Concurrent thumbnail jobs (remote)<input name="remoteWorkers" type="number" min="1" max="16" value="@RemoteResizer.Workers" required /><small>Concurrent requests from this Gallery, 1–16. The ThumbService server-wide worker limit still applies. Local workers are unchanged.</small></label>
+        <label>Background thumbnail workers (remote)<input name="remoteBackgroundWorkers" type="number" min="0" max="16" value="@RemoteResizer.BackgroundWorkers" required /><small>0 disables remote background creation. Must not exceed remote concurrent jobs. Visible requests take priority.</small></label>
+        <div class="wide"><button type="submit">Save remote settings</button></div>
+    </form>
+    <p class="muted">Saved in the Gallery database and applied immediately without restart. Connection checks run in the background; unavailable service requests fall back to local immediately.</p>
+    @inject WebGallery.Services.GalleryIndexService GalleryIndex
     <form asp-action="SaveSettings" method="post" class="admin-grid-form">
+        <label>Background thumbnail workers (local)<input name="backgroundThumbnailWorkers" type="number" min="0" max="16" value="@ThumbnailSettings.BackgroundWorkers" required /><small>0 disables automatic creation. Processes pending or changed images and videos from the index. Uses the total thumbnail job limit below; on-demand jobs run first. Existing cache files are reused.</small><small>@BackgroundThumbnails.Status</small></label>
+        <label>Index reconciliation (hours)<input name="indexReconcileHours" type="number" min="1" max="168" value="@GalleryIndex.ReconcileHours" required /><small>Folders also refresh in the background when opened and when filesystem changes are detected.</small></label>
         <label>Site title<input name="appTitle" value="@Model.AppTitle" required /></label>
-        <label>Theme<select name="theme" required><option value="retro" selected="@(Model.Theme == "retro")">Retro</option><option value="modern" selected="@(Model.Theme == "modern")">Modern</option></select><small>Retro keeps the current pixel-style interface. Modern uses a softer contemporary interface.</small></label>
-        <label>Concurrent thumbnail jobs<input name="thumbnailConcurrency" type="number" min="1" max="16" value="@Model.ThumbnailConcurrency" required /><small>Limits CPU-heavy thumbnail generation across the entire server. Recommended: 2–4.</small></label>
+        <label>Concurrent thumbnail jobs (local)<input name="thumbnailConcurrency" type="number" min="1" max="16" value="@Model.ThumbnailConcurrency" required /><small>Limits CPU-heavy thumbnail generation across the entire server. Recommended: 2–4.</small></label>
+        <label>Thumbnail decoding<select name="thumbnailDecodeMode" required><option value="full" selected="@(Model.ThumbnailDecodeMode == "full")">Full decode (original method)</option><option value="jpeg-idct" selected="@(Model.ThumbnailDecodeMode == "jpeg-idct")">Faster JPEG (reduced IDCT)</option></select><small>Faster JPEG uses less processing for large photos and may slightly change fine detail. Other formats keep full decoding. Each method has its own cache; reload gallery pages after saving.</small></label>
         <div class="admin-form-heading wide"><h3>Login protection</h3><p class="muted">Progressive delays apply by username. Cooldowns block repeated attempts by username and by direct client IP.</p></div>
         <label>Start delay after<input name="loginDelayAfterFailures" type="number" min="1" max="99" value="@Model.LoginDelayAfterFailures" required /><small>Failed attempts before a short progressive delay begins. Must be lower than the username cooldown threshold.</small></label>
         <label>Delay increment (seconds)<input name="loginDelayIncrementSeconds" type="number" min="0" max="300" value="@Model.LoginDelayIncrementSeconds" required /><small>Added to the next retry delay after each further failure. Set to 0 to disable progressive delay.</small></label>
@@ -25,31 +40,73 @@
 </section>
 
 <section class="panel admin-section">
+    <h2>File index</h2>
+    <section class="indexing-progress" data-indexing-progress-url="@Url.Action("IndexingProgress")" aria-label="Indexing progress">
+        <h3>Indexing progress</h3>
+        <p data-index-folders>@GalleryIndex.Status</p>
+        <strong>Date Taken metadata</strong>
+        <progress data-index-bar max="1" aria-label="Date Taken indexing completion"></progress>
+        <p data-index-summary aria-live="polite">Loading indexing progress…</p>
+        <p data-index-details></p>
+        <small data-index-updated></small>
+        <small>Counts cover indexed images across all users, not unique physical files. A completed check may find no EXIF date. Newly discovered files can increase the total. Updates every 15 seconds while this page is visible.</small>
+    </section>
+    @inject WebGallery.Services.DateTakenIndexer DateIndexer
+    <form asp-action="SaveIndexingSettings" method="post" class="admin-grid-form">
+        <label>Date Taken indexing workers<input type="number" name="dateTakenWorkers" min="1" max="16" value="@DateIndexer.Workers" required /><small>Default: 4. Reads metadata concurrently using a continuous queue. Database writes are batched. Separate from thumbnail workers; lowering the limit lets active reads finish.</small></label>
+        <button type="submit">Save indexing settings</button>
+    </form>
+    <form asp-action="RebuildIndex" method="post"><button type="submit">Re-index all</button><small>Rescans every user's folders and re-reads Date Taken, including files previously indexed without EXIF dates. Runs in the background without clearing existing listings or thumbnail caches. Files without a capture date sort last; refresh the gallery to see updated dates.</small></form>
+    <form asp-action="RefreshIndexFolder" method="post" class="admin-grid-form">
+        <label>Root folder<select name="rootId">@foreach (var user in Model.Users) { @foreach (var root in user.Roots) { <option value="@root.Id">@user.UserName / @root.Name</option> } }</select></label>
+        <label>Relative folder path<input name="relativePath" placeholder="Leave empty for the root folder" /></label>
+        <button type="submit">Refresh folder index</button>
+    </form>
+</section>
+<section class="panel admin-section">
     <h2>Create user</h2>
     <form asp-action="CreateUser" method="post" class="admin-grid-form">
         <label>Username<input name="userName" required /></label>
         <label>Display name<input name="displayName" required /></label>
-        <label class="wide">Initial folder (optional)<input name="rootFolder" placeholder="D:\Photos\Somchai" /><small>You can add more folders after creating the account.</small></label>
+        <label class="wide">Root folder (optional)<input name="rootFolder" placeholder="D:\Photos\Somchai" /><small>One root folder per account.</small></label>
         <label>Password<input name="password" type="password" minlength="10" required /></label>
         <label class="check"><input name="isAdmin" type="checkbox" value="true" /> Admin</label>
+        <label class="check"><input name="requirePasswordChange" type="checkbox" value="true" checked /> Change password on next login</label><input type="hidden" name="requirePasswordChange" value="false" />
         <button class="primary" type="submit">Create user</button>
     </form>
 </section>
 
 <section class="admin-users">
+    @if (TempData["PasswordLink"] is string passwordLink)
+    {
+        <section class="panel"><h3>Password reset link for @TempData["PasswordLinkUser"]</h3><p>One use · expires in one hour. Send it privately.</p><input readonly value="@passwordLink" /><button type="button" data-copy="@passwordLink">Copy link</button></section>
+    }
     @foreach (var user in Model.Users)
     {
         <article id="user-@user.Id" class="panel user-card">
             <div class="user-title"><div class="avatar">@user.UserName[..1].ToUpperInvariant()</div><div><h2>@user.UserName</h2><small>@(user.IsAdmin ? "Administrator" : "User")</small></div></div>
+            <section class="user-thumbnail-summary" data-thumbnail-owner="@user.Id" data-thumbnail-progress-url="@Url.Action("ThumbnailProgress")" aria-label="Thumbnail progress for @user.UserName">
+                <strong>Thumbnails</strong>
+                <b>Small</b>
+                <div><span data-thumbnail-ready="@user.ThumbnailReady">@user.ThumbnailReady.ToString("N0") created</span> / <span data-thumbnail-total="@user.ThumbnailTotal">@user.ThumbnailTotal.ToString("N0") total</span></div>
+                <span data-thumbnail-pending="@user.ThumbnailPending">@user.ThumbnailPending.ToString("N0") remaining</span>
+                <b>Medium · 1500 px</b>
+                <div><span data-medium-ready>@user.MediumThumbnailReady.ToString("N0") created</span> / <span data-medium-total>@user.ThumbnailTotal.ToString("N0") total</span></div>
+                <span data-medium-pending>@user.MediumThumbnailPending.ToString("N0") remaining</span>
+                <small>Current quality · indexed images and videos. Unindexed files or manually removed cache files may not yet be reflected.</small>
+                <small data-thumbnail-updated>Updates every 15 seconds while this tab is visible.</small>
+            </section>
             <form asp-action="UpdateUser" method="post" class="stack-form">
                 <input type="hidden" name="id" value="@user.Id" />
                 <label>Display name<input name="displayName" value="@user.DisplayName" required /></label>
                 <label>New password<input name="newPassword" type="password" minlength="10" placeholder="Leave blank to keep the current password" /></label>
                 <label class="check"><input name="isAdmin" type="checkbox" value="true" checked="@user.IsAdmin" /> Admin</label>
+                <label class="check"><input name="requirePasswordChange" type="checkbox" value="true" checked="@user.RequirePasswordChange" /> Change password on next login</label>
                 <button class="primary" type="submit">Save</button>
             </form>
+            <form asp-action="CreatePasswordLink" method="post"><input type="hidden" name="id" value="@user.Id" /><button type="submit" class="button compact">Create one-time password link</button></form>
             <section class="admin-user-roots" aria-label="Gallery folders for @user.UserName">
-                <div class="admin-user-roots-heading"><h3>Gallery folders</h3><span class="collection-count-badge">@user.Roots.Count</span></div>
+                <div class="admin-user-roots-heading"><h3>Root folder</h3></div>
                 @if (userRootErrorId == user.Id && !string.IsNullOrWhiteSpace(userRootError))
                 {
                     <div class="alert error admin-root-error" role="alert"><strong>Folder not added</strong><span>@userRootError</span></div>
@@ -70,12 +127,14 @@
                         </div>
                     </form>
                 }
+                @if (user.Roots.Count == 0) {
                 <form asp-action="AddUserRoot" method="post" class="admin-root-add">
                     <input type="hidden" name="id" value="@user.Id" />
                     <label>Folder name<input name="name" maxlength="160" placeholder="Optional label" /></label>
                     <label class="admin-root-path">Physical path<input name="physicalPath" placeholder="D:\Photos\@user.UserName" required /></label>
                     <div class="admin-root-actions"><button class="button compact" type="submit">Add folder</button></div>
                 </form>
+                }
             </section>
             <form asp-action="DeleteUser" method="post" data-confirm="Delete @user.UserName? Files will not be deleted."><input type="hidden" name="id" value="@user.Id" /><button class="danger-text" type="submit">Delete account</button></form>
         </article>

@@ -15,10 +15,25 @@ public static class DatabaseInitializer
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<GalleryDbContext>();
         await db.Database.EnsureCreatedAsync();
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS FolderBrowsePreferences (
+                OwnerId TEXT NOT NULL REFERENCES AspNetUsers(Id) ON DELETE CASCADE,
+                FolderKey TEXT NOT NULL, Sort TEXT NOT NULL, Direction TEXT NOT NULL,
+                PRIMARY KEY (OwnerId, FolderKey))
+            """);
+        await EnsurePasswordColumnAsync(db);
         await EnsureShareLinkPresentationColumnsAsync(db);
         await EnsureCollectionSchemaAsync(db);
         await EnsureShareTargetTypeAsync(db);
         await EnsureUserRootSchemaAsync(db);
+        if (await db.UserRoots.GroupBy(x => x.OwnerUserId).AnyAsync(x => x.Count() > 1))
+            throw new InvalidOperationException("Single-root migration requires at most one root per user. No roots have been deleted.");
+        await db.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS IX_UserRoots_SingleOwner ON UserRoots(OwnerUserId)");
+        await GalleryIndexService.EnsureSchemaAsync(db);
+        var indexHours = (await db.AppSettings.FindAsync("IndexReconcileHours"))?.Value;
+        var indexWorkers = (await db.AppSettings.FindAsync("DateTakenWorkers"))?.Value;
+        scope.ServiceProvider.GetService<DateTakenIndexer>()?.SetWorkers(int.TryParse(indexWorkers, out var workerCount) ? workerCount : 4);
+        scope.ServiceProvider.GetService<GalleryIndexService>()?.SetReconcileHours(int.TryParse(indexHours, out var hours) ? hours : 24);
         await EnsureShareAuditSchemaAsync(db);
 
         await db.FolderRules
@@ -31,13 +46,25 @@ public static class DatabaseInitializer
             await db.SaveChangesAsync();
         }
 
-        if (!await db.AppSettings.AnyAsync(x => x.Key == "Theme"))
-        {
-            db.AppSettings.Add(new AppSetting { Key = "Theme", Value = "retro" });
-            await db.SaveChangesAsync();
-        }
 
         var options = scope.ServiceProvider.GetRequiredService<IOptions<GalleryOptions>>().Value;
+        var remoteQualityValue = (await db.AppSettings.FindAsync("ResizerServiceQuality"))?.Value;
+        var remoteWorkersValue = (await db.AppSettings.FindAsync("ResizerServiceWorkers"))?.Value;
+        scope.ServiceProvider.GetService<RemoteResizer>()?.UpdateSettings(
+            int.TryParse(remoteQualityValue,out var remoteQuality) ? remoteQuality : options.ResizerServiceQuality,
+            int.TryParse(remoteWorkersValue,out var remoteWorkers) ? remoteWorkers : options.ResizerServiceWorkers);
+        var remoteMode = (await db.AppSettings.FindAsync("ResizerServiceDecodeMode"))?.Value ?? options.ResizerServiceDecodeMode;
+        var remoteBackgroundValue = (await db.AppSettings.FindAsync("ResizerServiceBackgroundWorkers"))?.Value;
+        // On upgrade preserve the existing background opt-in once as the remote default.
+        if (remoteBackgroundValue is null) {
+            remoteBackgroundValue = (await db.AppSettings.FindAsync("BackgroundThumbnailWorkers"))?.Value
+                ?? options.ResizerServiceBackgroundWorkers.ToString();
+            db.AppSettings.Add(new AppSetting { Key = "ResizerServiceBackgroundWorkers", Value = remoteBackgroundValue });
+            await db.SaveChangesAsync();
+        }
+        scope.ServiceProvider.GetService<RemoteResizer>()?.UpdateDecodeSettings(remoteMode,
+            int.TryParse(remoteWorkersValue,out remoteWorkers) ? remoteWorkers : options.ResizerServiceWorkers,
+            int.TryParse(remoteBackgroundValue,out var remoteBackground) ? remoteBackground : options.ResizerServiceBackgroundWorkers);
         var loginSecuritySettings = scope.ServiceProvider.GetRequiredService<LoginSecuritySettings>();
         await LoadLoginSecuritySettingsAsync(db, loginSecuritySettings);
         var queueSettings = scope.ServiceProvider.GetRequiredService<ThumbnailQueueSettings>();
@@ -63,6 +90,9 @@ public static class DatabaseInitializer
             await db.SaveChangesAsync();
         }
         queueSettings.Update(concurrency);
+        var backgroundValue = (await db.AppSettings.FindAsync("BackgroundThumbnailWorkers"))?.Value;
+        queueSettings.SetBackgroundWorkers(int.TryParse(backgroundValue, out var backgroundWorkers) ? backgroundWorkers : 0);
+        queueSettings.SetReducedJpeg((await db.AppSettings.FindAsync("ThumbnailDecodeMode"))?.Value == "jpeg-idct");
 
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         if (!await roleManager.RoleExistsAsync(AdminRole))
@@ -76,6 +106,7 @@ public static class DatabaseInitializer
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var userName = configuration["BootstrapAdmin:UserName"] ?? "admin";
         var admin = await userManager.FindByNameAsync(userName);
+        var createdAdmin = admin is null;
         if (admin is null)
         {
             admin = new ApplicationUser
@@ -83,6 +114,7 @@ public static class DatabaseInitializer
                 UserName = userName,
                 DisplayName = configuration["BootstrapAdmin:DisplayName"] ?? "Administrator",
                 RootFolder = rootPath
+                , RequirePasswordChange = true
             };
             var password = configuration["BootstrapAdmin:Password"];
             var generatedPassword = string.IsNullOrWhiteSpace(password);
@@ -96,7 +128,7 @@ public static class DatabaseInitializer
                 await File.WriteAllTextAsync(credentialFile, $"UserName: {userName}{Environment.NewLine}Password: {password}{Environment.NewLine}Created: {DateTimeOffset.Now:O}{Environment.NewLine}");
             }
         }
-        if (!await db.UserRoots.AnyAsync(root => root.OwnerUserId == admin.Id))
+        if (createdAdmin && !await db.UserRoots.AnyAsync(root => root.OwnerUserId == admin.Id))
         {
             db.UserRoots.Add(new UserRoot
             {
@@ -110,6 +142,20 @@ public static class DatabaseInitializer
         }
         if (!await userManager.IsInRoleAsync(admin, AdminRole))
             await userManager.AddToRoleAsync(admin, AdminRole);
+    }
+
+    private static async Task EnsurePasswordColumnAsync(GalleryDbContext db)
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+        try {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('AspNetUsers') WHERE name='RequirePasswordChange'";
+            if (Convert.ToInt32(await command.ExecuteScalarAsync()) == 0) {
+                command.CommandText = "ALTER TABLE AspNetUsers ADD COLUMN RequirePasswordChange INTEGER NOT NULL DEFAULT 0";
+                await command.ExecuteNonQueryAsync();
+            }
+        } finally { await connection.CloseAsync(); }
     }
 
     private static async Task EnsureShareTargetTypeAsync(GalleryDbContext db)
@@ -130,6 +176,11 @@ public static class DatabaseInitializer
                 await using var command = connection.CreateCommand();
                 command.CommandText = "ALTER TABLE ShareLinks ADD COLUMN TargetType TEXT NOT NULL DEFAULT 'folder'";
                 await command.ExecuteNonQueryAsync();
+            }
+            if (!columns.Contains("SelectedPathsJson")) {
+                await using var addSelection = connection.CreateCommand();
+                addSelection.CommandText = "ALTER TABLE ShareLinks ADD COLUMN SelectedPathsJson TEXT NOT NULL DEFAULT '[]'";
+                await addSelection.ExecuteNonQueryAsync();
             }
             await using var normalize = connection.CreateCommand();
             normalize.CommandText = "UPDATE ShareLinks SET TargetType = 'collection' WHERE CollectionId IS NOT NULL AND TargetType <> 'collection'";
@@ -156,13 +207,27 @@ public static class DatabaseInitializer
                     CONSTRAINT FK_UserRoots_AspNetUsers_OwnerUserId FOREIGN KEY (OwnerUserId) REFERENCES AspNetUsers (Id) ON DELETE CASCADE
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS IX_UserRoots_OwnerUserId_PhysicalPath ON UserRoots (OwnerUserId, PhysicalPath);
-                INSERT OR IGNORE INTO UserRoots (OwnerUserId, Name, PhysicalPath, SortOrder, CreatedAtUtc)
-                SELECT Id,
-                       CASE WHEN instr(replace(RootFolder, '\\', '/'), '/') = 0 THEN RootFolder ELSE rtrim(RootFolder, '\\/') END,
-                       rtrim(RootFolder, '\\/'), 0, strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')
-                FROM AspNetUsers WHERE trim(RootFolder) <> '';
                 """;
             await command.ExecuteNonQueryAsync();
+
+            // Legacy RootFolder is migration input, never an ongoing source of assignments.
+            // Keep E:\ and / intact; trimming separators turns volume roots into other paths.
+            await using (var transaction = await connection.BeginTransactionAsync())
+            {
+                await using var seed = connection.CreateCommand();
+                seed.Transaction = transaction;
+                seed.CommandText = """
+                    INSERT OR IGNORE INTO UserRoots (OwnerUserId, Name, PhysicalPath, SortOrder, CreatedAtUtc)
+                    SELECT Id, RootFolder, RootFolder, 0, strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')
+                    FROM AspNetUsers AS u
+                    WHERE trim(RootFolder) <> ''
+                      AND NOT EXISTS (SELECT 1 FROM UserRoots WHERE OwnerUserId = u.Id)
+                      AND NOT EXISTS (SELECT 1 FROM AppSettings WHERE Key = 'Migration.UserRoots.SeededV2');
+                    INSERT OR IGNORE INTO AppSettings (Key, Value) VALUES ('Migration.UserRoots.SeededV2', 'true');
+                    """;
+                await seed.ExecuteNonQueryAsync();
+                await transaction.CommitAsync();
+            }
 
             var roots = new List<(long Id, string Path)>();
             await using (var read = connection.CreateCommand())

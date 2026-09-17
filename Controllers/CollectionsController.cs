@@ -57,7 +57,7 @@ public sealed class CollectionsController(
         }).ToList();
         var folderShareGroups = folderShareLinks
             .Select(link => CreateShareManagementModel(link, shareSummaries))
-            .GroupBy(share => share.Link.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(share => share.Link.RelativePath, FileSystemService.PathComparer)
             .Select(group => new FolderShareGroupViewModel
             {
                 RelativePath = group.Key,
@@ -82,6 +82,10 @@ public sealed class CollectionsController(
     {
         var owner = await userManager.GetUserAsync(User);
         if (owner is null) return Challenge();
+        if (string.IsNullOrWhiteSpace(path)) {
+            var root=await db.UserRoots.SingleOrDefaultAsync(x=>x.OwnerUserId==owner.Id);
+            if(root is not null)path=FileSystemService.RootMarker(root.Id);
+        }
         var collection = await db.Collections.Include(x => x.Folders)
             .SingleOrDefaultAsync(x => x.Id == id && x.OwnerUserId == owner.Id);
         if (collection is null) return NotFound();
@@ -96,9 +100,9 @@ public sealed class CollectionsController(
                 .Select(item =>
                 {
                     var directMembership = collection.Folders.FirstOrDefault(existing =>
-                        string.Equals(existing.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase));
+                        FileSystemService.PathsEqual(existing.RelativePath, item.RelativePath));
                     var includedByParent = collection.Folders
-                        .Where(existing => !string.Equals(existing.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase)
+                        .Where(existing => !FileSystemService.PathsEqual(existing.RelativePath, item.RelativePath)
                             && FileSystemService.IsWithinShareScope(existing.RelativePath, item.RelativePath))
                         .OrderByDescending(existing => existing.RelativePath.Length)
                         .FirstOrDefault();
@@ -108,7 +112,7 @@ public sealed class CollectionsController(
                         DirectMembershipId = directMembership?.Id,
                         IncludedByParentPath = includedByParent?.RelativePath,
                         ContainsIncludedFolder = collection.Folders.Any(existing =>
-                            !string.Equals(existing.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase)
+                            !FileSystemService.PathsEqual(existing.RelativePath, item.RelativePath)
                             && FileSystemService.IsWithinShareScope(item.RelativePath, existing.RelativePath))
                     };
                 })
@@ -119,7 +123,7 @@ public sealed class CollectionsController(
                 CollectionName = collection.Name,
                 OwnerUserName = owner.UserName ?? "",
                 Path = normalized,
-                ParentPath = FileSystemService.GetParent(normalized),
+                ParentPath = FileSystemService.GetParent(normalized) is { Length: >0 } parent ? parent : null,
                 Sort = normalizedSort,
                 Direction = normalizedDirection,
                 ExistingFolderCount = collection.Folders.Count,
@@ -183,7 +187,7 @@ public sealed class CollectionsController(
             collection.Folders.Remove(removedMembership);
 
         var candidates = new List<string>();
-        foreach (var path in (folderPaths ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var path in (folderPaths ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(FileSystemService.PathComparer))
         {
             var normalized = files.NormalizeRelativePath(path).Replace(Path.DirectorySeparatorChar, '/');
             if (string.IsNullOrEmpty(normalized)) continue;
@@ -322,7 +326,7 @@ public sealed class CollectionsController(
         var summaries = await shareAudit.GetSummariesAsync([link.Id]);
         var shareLabel = link.TargetType == ShareTargetTypes.File
             ? Path.GetFileName(link.RelativePath)
-            : link.Collection?.Name ?? (string.IsNullOrWhiteSpace(link.RelativePath) ? "Home" : link.RelativePath.Replace('\\', '/'));
+            : link.Collection?.Name ?? (string.IsNullOrWhiteSpace(link.RelativePath) ? "Home" : FileSystemService.ToLogicalPath(link.RelativePath));
         return View(new ShareActivityViewModel
         {
             Link = link,
@@ -360,7 +364,7 @@ public sealed class CollectionsController(
 
     private static string GetFolderShareDisplayName(string relativePath)
     {
-        var normalized = relativePath.Replace('\\', '/').TrimEnd('/');
+        var normalized = FileSystemService.ToLogicalPath(relativePath);
         return string.IsNullOrEmpty(normalized) ? "Home" : normalized.Split('/').Last();
     }
 

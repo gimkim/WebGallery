@@ -1,4 +1,100 @@
-(() => {
+window.GalleryPages.mounts.push(scope => {
+  const { window, document, setTimeout, setInterval, clearTimeout, clearInterval, requestAnimationFrame, IntersectionObserver, ResizeObserver, fetch } = scope;
+  const serviceStatus = document.querySelector('[data-resizer-status-url]');
+  const indexing = document.querySelector('[data-indexing-progress-url]');
+  if (indexing) {
+    let busy = false;
+    const updateIndexing = async () => {
+      if (busy || document.visibilityState === 'hidden') return;
+      busy = true;
+      try {
+        const response = await fetch(indexing.dataset.indexingProgressUrl, { cache: 'no-store' });
+        if (!response.ok) throw new Error('Index progress unavailable');
+        const s = await response.json(), n = value => Number(value).toLocaleString();
+        const percent = s.total ? (100 * s.completed / s.total).toFixed(1) : '0.0';
+        const bar = indexing.querySelector('[data-index-bar]'); bar.max = s.total || 1; bar.value = s.completed;
+        indexing.querySelector('[data-index-summary]').textContent = s.total ? `${n(s.completed)} / ${n(s.total)} checked (${percent}%)` : 'No indexed images yet.';
+        indexing.querySelector('[data-index-details]').textContent = `${n(s.withDate)} with date · ${n(s.withoutDate)} without date · ${n(s.pending)} pending · ${n(s.retry)} awaiting retry`;
+        indexing.querySelector('[data-index-folders]').textContent = s.folderStatus;
+        indexing.querySelector('[data-index-updated]').textContent = `Updated ${new Date(s.updatedAt).toLocaleTimeString()}`;
+      } catch {
+        indexing.querySelector('[data-index-updated]').textContent = 'Update unavailable; showing previous values. Retrying automatically.';
+      } finally { busy = false; }
+    };
+    updateIndexing(); setInterval(updateIndexing, 15000);
+  }
+  // Small, consistent outline icons; labels remain accessible and searchable.
+  const actionIcons = {
+    'Share':'M8 11l8-5M8 13l8 5M9 12a3 3 0 1 0-6 0 3 3 0 1 0 6 0M22 4a3 3 0 1 0-6 0 3 3 0 1 0 6 0M22 20a3 3 0 1 0-6 0 3 3 0 1 0 6 0',
+    'Create folder here':'M3 7V4h6l2 3h10v13H3V7m9 4v6m-3-3h6',
+    'Upload to this folder':'M12 16V3m-4 4 4-4 4 4M4 16v5h16v-5',
+    'Grid':'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+    'List':'M8 5h13M8 12h13M8 19h13M3 5h1M3 12h1M3 19h1',
+    'Copy':'M8 8h13v13H8zM16 8V3H3v13h5',
+    'Move to…':'M3 7V4h6l2 3h10v13H3V7m4 6h10m-3-3 3 3-3 3',
+    'Clear':'m6 6 12 12M6 18 18 6',
+    'Share file':'M8 11l8-5M8 13l8 5M9 12a3 3 0 1 0-6 0 3 3 0 1 0 6 0M22 4a3 3 0 1 0-6 0 3 3 0 1 0 6 0M22 20a3 3 0 1 0-6 0 3 3 0 1 0 6 0',
+    'Create share link':'M10 13a5 5 0 0 0 7 0l4-4a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-4 4a5 5 0 0 0 7 7l2-2',
+    'Activity':'M3 12h4l3-8 4 16 3-8h4',
+    'Revoke':'M4 7h16M9 7V3h6v4M6 7l1 14h10l1-14',
+    'Info':'M12 11v7m0-12v1'
+  };
+  document.querySelectorAll('button, a.button, summary.button').forEach(button => {
+    const path = actionIcons[button.textContent.trim()];
+    if (!path || button.querySelector('svg')) return;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('aria-hidden','true'); svg.classList.add('action-icon');
+    const shape = document.createElementNS(svg.namespaceURI,'path'); shape.setAttribute('d',path); svg.append(shape); button.prepend(svg);
+  });
+  const progressCards = [...document.querySelectorAll('[data-thumbnail-progress-url]')];
+  document.querySelectorAll('.sticky-folder-actions button, .sticky-folder-actions a.button').forEach(action => {
+    const label=action.textContent.trim();
+    action.setAttribute('aria-label',label); action.title=label;
+    [...action.childNodes].filter(node=>node.nodeType===3 && node.textContent.trim()).forEach(node=>{
+      const text=document.createElement('span');text.textContent=node.textContent;node.replaceWith(text);
+    });
+    const shortLabel=action.dataset.fileAction==='create'?'Create':action.dataset.fileAction==='upload'?'Upload':action.classList.contains('download-button')?'Download Folder':'Share';
+    const caption=action.querySelector('span');if(caption)caption.textContent=shortLabel;
+  });
+  if (progressCards.length) {
+    let busy = false;
+    const refresh = async () => {
+      if (busy || document.visibilityState === 'hidden') return;
+      busy = true;
+      try {
+        const response = await fetch(progressCards[0].dataset.thumbnailProgressUrl, { credentials:'same-origin', cache:'no-store' });
+        if (!response.ok) throw new Error('Progress unavailable');
+        const counts = await response.json();
+        for (const card of progressCards) {
+          const row = counts[card.dataset.thumbnailOwner] || { total:0, smallReady:0, mediumReady:0 };
+          const set = (selector,value,suffix) => { card.querySelector(selector).textContent=value.toLocaleString('en-US')+' '+suffix; };
+          set('[data-thumbnail-ready]',row.smallReady,'created');set('[data-thumbnail-total]',row.total,'total');set('[data-thumbnail-pending]',row.total-row.smallReady,'remaining');
+          set('[data-medium-ready]',row.mediumReady,'created');set('[data-medium-total]',row.total,'total');set('[data-medium-pending]',row.total-row.mediumReady,'remaining');
+          card.querySelector('[data-thumbnail-updated]').textContent='Updated '+new Date().toLocaleTimeString('en-US')+' · refreshes every 15 seconds';
+        }
+      } catch {
+        progressCards.forEach(card => { card.querySelector('[data-thumbnail-updated]').textContent='Update unavailable; showing last values. Retrying automatically.'; });
+      } finally { busy=false; }
+    };
+    setInterval(refresh,15000);
+  }
+  if (serviceStatus) {
+    let checking = false;
+    const refresh = async () => {
+      if (checking || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        const response = await fetch(serviceStatus.dataset.resizerStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        serviceStatus.querySelector('[data-resizer-status]').textContent = data.status;
+        const retry = document.querySelector('[data-resizer-retry]');
+        if (retry) retry.hidden = !data.canRetry;
+        serviceStatus.querySelector('[data-resizer-checked]').textContent = 'Last checked: ' + (data.checkedAt ? new Date(data.checkedAt).toLocaleString() : 'Not yet');
+      } catch {} finally { checking = false; }
+    };
+    setInterval(refresh, 3000);
+  }
   document.querySelectorAll('[data-cooldown]').forEach(message => {
     const value = message.querySelector('[data-cooldown-value]');
     const startedAt = Date.now();
@@ -305,23 +401,104 @@
 
   const thumbnailStates = new WeakMap();
   const thumbnailImages = [...document.querySelectorAll('img[data-thumbnail-src]')];
-  const maximumThumbnailRequests = 12;
+  // Medium work is on-demand and bounded independently of small cache reads.
+  const mediumQueue = [];
+  let activeMediumRequests = 0;
+  function mediumThumbnailUrl(source) {
+    const url = new URL(source, window.location.href);
+    url.searchParams.set('medium', 'true');
+    return url.href;
+  }
+  function fetchMediumThumbnail(source, signal) {
+    // Cache hits must not sit behind slow generation jobs in the four-slot network queue.
+    return fetch(mediumThumbnailUrl(source), { signal, credentials: 'same-origin', mode: 'same-origin', cache: 'only-if-cached' })
+      .then(response => response.ok && response.status !== 204 ? response.blob() : null, () => null)
+      .then(blob => blob || (signal.aborted ? null : new Promise(resolve => {
+        mediumQueue.push({ source, signal, resolve });
+        pumpMediumQueue();
+      })));
+  }
+  function pumpMediumQueue() {
+    // Finish small network/cache probes first; cached medium hits already bypass this queue.
+    if (!thumbnailRequestsSuspended && (activeThumbnailRequests > 0 || pendingThumbnails.length || thumbnailImages.some(image => thumbnailStates.get(image)?.probing))) return;
+    while (activeMediumRequests < 4 && mediumQueue.length) {
+      const job = mediumQueue.shift();
+      if (job.signal.aborted) { job.resolve(null); continue; }
+      activeMediumRequests++;
+      fetch(mediumThumbnailUrl(job.source), { signal: job.signal, credentials: 'same-origin', cache: 'default', priority: 'low', headers: { 'X-Thumbnail-Priority': 'visible' } })
+        .then(response => response.ok && response.status !== 204 && response.headers.get('Content-Type')?.includes('image/webp') ? response.blob() : null)
+        .then(job.resolve, () => job.resolve(null))
+        .finally(() => { activeMediumRequests--; pumpMediumQueue(); });
+    }
+  }
+  const pendingThumbnailUpgrades = new Set();
+  let thumbnailUpgradeFrame = false;
+  function scheduleThumbnailUpgrade(image) {
+    pendingThumbnailUpgrades.add(image);
+    if (thumbnailUpgradeFrame) return;
+    thumbnailUpgradeFrame = true;
+    requestAnimationFrame(() => {
+      thumbnailUpgradeFrame = false;
+      // Read layout once as a batch, rather than after every thumbnail class mutation.
+      const measured = [...pendingThumbnailUpgrades].map(image => {
+        const state = thumbnailStates.get(image);
+        if (!state?.visible || !state.loaded || state.medium || thumbnailRequestsSuspended) return null;
+        const rect = image.getBoundingClientRect();
+        const width = state.smallWidth || image.naturalWidth, height = state.smallHeight || image.naturalHeight;
+        return { image, scale: width && height ? Math.min(rect.width / width, rect.height / height) * (window.devicePixelRatio || 1) : 0 };
+      });
+      pendingThumbnailUpgrades.clear();
+      measured.forEach(item => { if (item) upgradeThumbnail(item.image, item.scale); });
+    });
+  }
+  function upgradeThumbnail(image, scale) {
+    const state = thumbnailStates.get(image);
+    if (!state?.visible || !state.loaded || state.medium || state.mediumController || thumbnailRequestsSuspended) return;
+    const width = state.smallWidth || image.naturalWidth, height = state.smallHeight || image.naturalHeight;
+    if (!width || !height) return;
+    if (scale <= 1.05 || Date.now() < (state.mediumRetryAfter || 0)) return;
+    const controller = new AbortController(); state.mediumController = controller;
+    fetchMediumThumbnail(image.dataset.thumbnailSrc, controller.signal).then(async blob => {
+      if (!blob || controller.signal.aborted) return;
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const decoded = new Image(); decoded.src = objectUrl; await decoded.decode();
+        if (controller.signal.aborted || !state.visible || thumbnailRequestsSuspended) return;
+        state.medium = true;
+        image.src = objectUrl;
+        try { await image.decode(); } catch {}
+      } finally { URL.revokeObjectURL(objectUrl); }
+    }).catch(() => {}).finally(() => {
+      if (state.mediumController === controller) state.mediumController = null;
+      state.mediumRetryAfter = controller.signal.aborted ? 0 : Date.now() + 30000;
+    });
+  }
+  let mediumResizeObserver;
+  if (typeof ResizeObserver !== 'undefined') {
+    mediumResizeObserver = new ResizeObserver(entries => entries.forEach(entry => scheduleThumbnailUpgrade(entry.target)));
+    thumbnailImages.forEach(image => mediumResizeObserver.observe(image));
+  }
+  // More in-flight cache reads; server-side generation workers remain independently bounded.
+  const maximumThumbnailRequests = 32;
   const pendingThumbnails = [];
   let activeThumbnailRequests = 0;
   let thumbnailRequestsSuspended = false;
   let thumbnailResumeTimer = null;
-  const thumbnailHost = image => image.closest('.thumbnail-slot, .image-button');
+  const thumbnailHost = image => image.closest('.thumbnail-slot, .image-button, .video-button');
   function setThumbnailReady(image) {
     const state = thumbnailStates.get(image);
     if (state) {
       state.loaded = true;
       state.assigned = false;
+      if (!state.smallWidth) { state.smallWidth = image.naturalWidth; state.smallHeight = image.naturalHeight; }
     }
     image.classList.add('thumbnail-loaded');
     image.classList.remove('thumbnail-error');
     const host = thumbnailHost(image);
     host?.classList.remove('thumbnail-loading', 'thumbnail-failed');
     host?.classList.add('thumbnail-ready');
+    scheduleThumbnailUpgrade(image);
+    pumpMediumQueue();
   }
   function setThumbnailError(image) {
     const state = thumbnailStates.get(image);
@@ -371,11 +548,13 @@
     } else if (state.visible && !thumbnailRequestsSuspended) {
       queueThumbnail(image);
     }
+    pumpMediumQueue();
   }
   function requestThumbnail(image) {
     const state = thumbnailStates.get(image);
+    if (state?.loaded) { scheduleThumbnailUpgrade(image); return; }
     if (!state || state.loaded || state.assigned || state.controller || state.queued || state.probing || !state.visible) return;
-    if (image.closest('.folder-cover-grid') && !state.cacheProbeAttempted) {
+    if (!state.cacheProbeAttempted) {
       probeFolderThumbnailCache(image, state);
     } else {
       queueThumbnail(image);
@@ -430,6 +609,7 @@
       activeThumbnailRequests = Math.max(0, activeThumbnailRequests - 1);
       if (!thumbnailRequestsSuspended && state.visible && !state.loaded && controller.signal.aborted) queueThumbnail(image);
       pumpThumbnailQueue();
+      pumpMediumQueue();
     });
   }
   function cancelThumbnailRequests(allowResume) {
@@ -444,6 +624,7 @@
         state.retry = null;
       }
       state.controller?.abort();
+      state.mediumController?.abort();
     });
     if (thumbnailResumeTimer) clearTimeout(thumbnailResumeTimer);
     thumbnailResumeTimer = null;
@@ -461,12 +642,14 @@
     thumbnailRequestsSuspended = false;
     thumbnailImages.forEach(requestThumbnail);
   }
+  let thumbnailObserver;
   if ('IntersectionObserver' in window) {
-    const thumbnailObserver = new IntersectionObserver(entries => {
+    thumbnailObserver = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         const image = entry.target;
         const state = thumbnailStates.get(image);
         state.visible = entry.isIntersecting;
+        thumbnailHost(image)?.classList.toggle('thumbnail-visible', entry.isIntersecting);
         if (entry.isIntersecting) {
           requestThumbnail(image);
         } else {
@@ -476,6 +659,7 @@
             state.retry = null;
           }
           state.controller?.abort();
+          state.mediumController?.abort();
         }
       });
     }, { rootMargin: '0px', threshold: 0.01 });
@@ -486,6 +670,7 @@
   } else {
     thumbnailImages.forEach(image => {
       thumbnailStates.set(image, { visible: true, loaded: false, assigned: false, queued: false, probing: false, cacheProbeAttempted: false, controller: null, retry: null });
+      // Without an observer use a static placeholder instead of animating the entire listing.
       requestThumbnail(image);
     });
   }
@@ -498,6 +683,97 @@
   }, true);
   document.addEventListener('submit', () => cancelThumbnailRequests(true), true);
   window.addEventListener('pagehide', () => cancelThumbnailRequests(false));
+  document.addEventListener('gallery:navigation-start', () => cancelThumbnailRequests(false));
+  document.addEventListener('gallery:navigation-end', () => resumeThumbnailRequests());
+
+  const videoBadgeGroups = [...document.querySelectorAll('[data-video-badges-url]')];
+  const pendingVideoBadges = [];
+  const videoBadgeStates = new WeakMap();
+  const maximumVideoBadgeRequests = 3;
+  let activeVideoBadgeRequests = 0;
+  function renderVideoBadges(group, badges) {
+    if (!Array.isArray(badges) || badges.length === 0) return;
+    const fragment = document.createDocumentFragment();
+    badges.forEach(badge => {
+      if (!badge?.label) return;
+      const element = document.createElement('span');
+      element.className = 'video-badge';
+      element.dataset.videoBadgeKey = badge.key || '';
+      element.dataset.verified = badge.verified ? 'true' : 'false';
+      element.title = badge.verified ? 'Read from video metadata' : 'Inferred from file name';
+      element.textContent = badge.label;
+      fragment.append(element);
+    });
+    if (!fragment.childNodes.length) return;
+    group.replaceChildren(fragment);
+  }
+  function pumpVideoBadgeQueue() {
+    while (activeVideoBadgeRequests < maximumVideoBadgeRequests && pendingVideoBadges.length > 0) {
+      const group = pendingVideoBadges.shift();
+      const state = videoBadgeStates.get(group);
+      if (!state?.queued) continue;
+      state.queued = false;
+      if (!state.visible || state.loaded || state.controller) continue;
+      const controller = new AbortController();
+      state.controller = controller;
+      activeVideoBadgeRequests++;
+      fetch(group.dataset.videoBadgesUrl, {
+        signal: controller.signal,
+        credentials: 'same-origin',
+        cache: 'default',
+        priority: 'low',
+        headers: { Accept: 'application/json' }
+      }).then(response => {
+        if (!response.ok) throw new Error(`Video details request failed: ${response.status}`);
+        return response.json();
+      }).then(result => {
+        if (controller.signal.aborted) return;
+        renderVideoBadges(group, result.badges);
+        state.loaded = true;
+      }).catch(error => {
+        if (error.name !== 'AbortError') state.loaded = true;
+      }).finally(() => {
+        if (state.controller === controller) state.controller = null;
+        activeVideoBadgeRequests = Math.max(0, activeVideoBadgeRequests - 1);
+        pumpVideoBadgeQueue();
+      });
+    }
+  }
+  function queueVideoBadges(group) {
+    const state = videoBadgeStates.get(group);
+    if (!state || !state.visible || state.loaded || state.queued || state.controller) return;
+    state.queued = true;
+    pendingVideoBadges.push(group);
+    pumpVideoBadgeQueue();
+  }
+  let videoBadgeObserver;
+  if ('IntersectionObserver' in window) {
+    videoBadgeObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        const group = entry.target;
+        const state = videoBadgeStates.get(group);
+        state.visible = entry.isIntersecting;
+        if (entry.isIntersecting) queueVideoBadges(group);
+        else {
+          state.queued = false;
+          state.controller?.abort();
+        }
+      });
+    }, { rootMargin: '240px 0px', threshold: 0.01 });
+    videoBadgeGroups.forEach(group => {
+      videoBadgeStates.set(group, { visible: false, loaded: false, queued: false, controller: null });
+      videoBadgeObserver.observe(group);
+    });
+  } else {
+    videoBadgeGroups.forEach(group => {
+      videoBadgeStates.set(group, { visible: true, loaded: false, queued: false, controller: null });
+      queueVideoBadges(group);
+    });
+  }
+  window.addEventListener('pagehide', () => {
+    pendingVideoBadges.length = 0;
+    videoBadgeGroups.forEach(group => videoBadgeStates.get(group)?.controller?.abort());
+  });
 
   const focusPath = gallery?.dataset.focusPath;
   if (focusPath) {
@@ -533,10 +809,10 @@
     if (selectedButton) selectedButton.disabled = count === 0;
     if (selectionToolbar) selectionToolbar.hidden = count === 0;
     if (shareSelectedFile) {
-      const selectedInput = count === 1 ? fileSelects.find(input => input.checked) : null;
-      shareSelectedFile.hidden = !selectedInput || selectedInput.closest('.file-card')?.dataset.shareable !== 'true';
+      shareSelectedFile.hidden = count === 0;
     }
-    if (galleryToolbarMain) galleryToolbarMain.hidden = count > 0;
+    // Selection adds tools; it never replaces the navigation/discovery row.
+    if (galleryToolbarMain) galleryToolbarMain.hidden = false;
     galleryToolbar?.classList.toggle('selection-active', count > 0);
     if (selectAll) {
       selectAll.checked = visibleInputs.length > 0 && visibleSelectedCount === visibleInputs.length;
@@ -545,10 +821,11 @@
     updateStickyListHeaderOffset();
   }
   let selectionAnchor = null;
-  fileSelects.forEach((input, index) => input.addEventListener('change', () => {
-    selectionAnchor = index;
+  function bindFileSelect(input) { input.addEventListener('change', () => {
+    selectionAnchor = fileSelects.indexOf(input);
     updateSelection();
-  }));
+  }); }
+  fileSelects.forEach(bindFileSelect);
   selectAll?.addEventListener('change', () => {
     visibleFileSelects().forEach(input => input.checked = selectAll.checked);
     updateSelection();
@@ -579,6 +856,14 @@
     updateSelection();
   }
   gallerySearch?.addEventListener('input', applyGalleryFilter);
+  // This local filter sits inside the selected-download form. Enter must never
+  // trigger that form's implicit submit (including when files are selected).
+  gallerySearch?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.isComposing) {
+      event.preventDefault();
+      applyGalleryFilter();
+    }
+  });
   galleryTypeFilter?.addEventListener('change', applyGalleryFilter);
   clearGalleryFilter?.addEventListener('click', () => {
     if (gallerySearch) gallerySearch.value = '';
@@ -601,10 +886,26 @@
 
   document.querySelectorAll('[data-toggle-panel]').forEach(button => button.addEventListener('click', () => {
     const panel = document.getElementById(button.dataset.togglePanel);
-    if (panel) panel.hidden = !panel.hidden;
+    if (panel instanceof HTMLDialogElement) { if (!panel.open) panel.showModal(); }
+    else if (panel) panel.hidden = !panel.hidden;
   }));
+  const shareModal=document.querySelector('dialog#share-panel');
+  function bindFileName(name) { name.addEventListener('click',event=>{
+    const media=name.closest('.file-card')?.querySelector('.image-button, .video-button');
+    if(!media) return;
+    event.preventDefault(); event.stopPropagation(); media.click();
+  }); }
+  document.querySelectorAll('.file-name-download').forEach(bindFileName);
+  shareModal?.querySelector('[data-close-share]')?.addEventListener('click',()=>shareModal.close());
+  shareModal?.addEventListener('click',event=>{
+    const rect=shareModal.getBoundingClientRect();
+    if(event.target===shareModal && (event.clientX<rect.left || event.clientX>rect.right || event.clientY<rect.top || event.clientY>rect.bottom))shareModal.close();
+  });
+  window.addEventListener('pagehide',()=>{if(shareModal?.open)shareModal.close();});
   document.querySelectorAll('[data-open-after-create="true"]').forEach(panel => {
-    panel.hidden = false;
+    panel.dataset.openAfterCreate = 'false';
+    if(panel instanceof HTMLDialogElement) { if(!panel.open)panel.showModal(); }
+    else panel.hidden = false;
   });
   document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
     await navigator.clipboard.writeText(button.dataset.copy);
@@ -637,6 +938,45 @@
   const viewerInfoDimensions = document.querySelector('#viewer-info-dimensions');
   const viewerInfoSize = document.querySelector('#viewer-info-size');
   const viewerInfoModified = document.querySelector('#viewer-info-modified');
+  const viewerExif = document.querySelector('#viewer-exif');
+  const viewerExifStatus = document.querySelector('#viewer-exif-status');
+  let viewerExifRequest = null;
+  let viewerExifButton = null;
+  viewerInfo?.addEventListener('toggle', () => {
+    if (viewerInfo.open) loadViewerExif();
+  });
+
+  async function loadViewerExif() {
+    const button = viewerExifButton;
+    const url = button?.dataset.viewerMetadata;
+    if (!url || !viewerExif || !viewerExifStatus || viewerExifRequest) return;
+    const generation = viewerLoadGeneration;
+    const controller = new AbortController();
+    viewerExifRequest = controller;
+    viewerExifStatus.textContent = 'Loading EXIF…';
+    try {
+      const response = await fetch(url, { credentials: 'same-origin', signal: controller.signal });
+      if (!response.ok) throw new Error('Metadata unavailable');
+      const result = await response.json();
+      if (generation !== viewerLoadGeneration || button !== viewerExifButton) return;
+      viewerExif.replaceChildren();
+      for (const entry of result.exif || []) {
+        const row = document.createElement('div');
+        const label = document.createElement('dt');
+        const value = document.createElement('dd');
+        label.textContent = entry.label;
+        value.textContent = entry.value;
+        row.append(label, value);
+        viewerExif.append(row);
+      }
+      viewerExifStatus.textContent = result.exif?.length ? 'EXIF' : 'No EXIF metadata available.';
+    } catch (error) {
+      if (error.name !== 'AbortError' && generation === viewerLoadGeneration)
+        viewerExifStatus.textContent = 'EXIF could not be loaded. Reopen Info to retry.';
+    } finally {
+      if (viewerExifRequest === controller) viewerExifRequest = null;
+    }
+  }
   const viewerFilmstrip = document.querySelector('#viewer-filmstrip');
   const viewerButtons = [...document.querySelectorAll('[data-viewer-src]')];
   let viewerIsLarge = false;
@@ -655,6 +995,7 @@
   let suppressViewerClickUntil = 0;
   let viewerLoadGeneration = 0;
   let viewerThumbnailLoader = null;
+  let viewerMediumController = null;
   let viewerOriginalLoader = null;
   let viewerOriginalRequest = null;
   let viewerOriginalCacheProbe = null;
@@ -709,8 +1050,6 @@
   function setViewerPlaceholderSize(button) {
     if (!viewerImage || !viewerStage || !viewerImage.naturalWidth || !viewerImage.naturalHeight) return;
     const available = getViewerAvailableSize();
-    const maxWidth = Number.parseInt(button.dataset.viewerThumbnailWidth || '0', 10);
-    const maxHeight = Number.parseInt(button.dataset.viewerThumbnailHeight || '0', 10);
     const originalWidth = Number.parseInt(button.dataset.viewerOriginalWidth || '0', 10);
     const originalHeight = Number.parseInt(button.dataset.viewerOriginalHeight || '0', 10);
     let renderedWidth;
@@ -722,10 +1061,8 @@
       renderedHeight = Math.max(1, Math.round(originalHeight * originalScale));
       scale = Math.min(renderedWidth / viewerImage.naturalWidth, renderedHeight / viewerImage.naturalHeight);
     } else {
-      const representsLargerOriginal = (maxWidth > 0 && viewerImage.naturalWidth >= maxWidth - 1)
-        || (maxHeight > 0 && viewerImage.naturalHeight >= maxHeight - 1);
       const availableScale = Math.min(available.width / viewerImage.naturalWidth, available.height / viewerImage.naturalHeight);
-      scale = representsLargerOriginal ? availableScale : Math.min(1, availableScale);
+      scale = availableScale;
       renderedWidth = Math.max(1, Math.round(viewerImage.naturalWidth * scale));
       renderedHeight = Math.max(1, Math.round(viewerImage.naturalHeight * scale));
     }
@@ -792,6 +1129,10 @@
   }
 
   function cancelViewerLoads() {
+    viewerMediumController?.abort();
+    viewerMediumController = null;
+    viewerExifRequest?.abort();
+    viewerExifRequest = null;
     viewerLoadGeneration++;
     viewerNeighborPrefetchController?.abort();
     viewerNeighborPrefetchController = null;
@@ -879,6 +1220,9 @@
   }
 
   function updateViewerChrome(button) {
+    viewerExifButton = button;
+    viewerExif?.replaceChildren();
+    if (viewerExifStatus) viewerExifStatus.textContent = '';
     if (viewerCounter) viewerCounter.textContent = `${currentViewerIndex + 1} / ${viewerButtons.length}`;
     if (viewerInfoType) viewerInfoType.textContent = button.dataset.viewerType || 'Image';
     if (viewerInfoSize) viewerInfoSize.textContent = button.dataset.viewerSize || '—';
@@ -985,30 +1329,33 @@
         viewerProgress.value = percent;
       } else {
         viewerProgress.max = 100;
-        viewerProgress.value = 0;
+        viewerProgress.removeAttribute('value');
       }
     }
     if (viewerProgressDetail) {
       viewerProgressDetail.textContent = hasTotal
         ? `${percent}% · ${formatViewerBytes(loaded)} / ${formatViewerBytes(total)}`
-        : `0% · ${formatViewerBytes(loaded)} / waiting for size`;
+        : `${formatViewerBytes(loaded)} loaded · total size unknown`;
     }
   }
 
   async function displayViewerSource(loader, generation, placeholderButton = null) {
     if (generation !== viewerLoadGeneration || !dialog?.open) return false;
-    viewerImage.src = loader.currentSrc || loader.src;
+    const assignedSource = loader.currentSrc || loader.src;
+    viewerImage.src = assignedSource;
     try { await viewerImage.decode(); } catch { }
-    if (generation !== viewerLoadGeneration || !dialog?.open) return false;
+    if (generation !== viewerLoadGeneration || !dialog?.open || viewerImage.src !== assignedSource) return false;
     viewerImage.classList.remove('loading');
     if (placeholderButton) {
       setViewerPlaceholderSize(placeholderButton);
     } else {
       viewerDisplayingPlaceholder = false;
+      viewerMediumController?.abort();
       viewerPlaceholderButton = null;
       setViewerSize(false);
       updateViewerDimensions();
       scheduleViewerNeighborPrefetch(generation);
+      if (viewerLoading) viewerLoading.hidden = true;
     }
     return true;
   }
@@ -1065,6 +1412,7 @@
         return;
       }
       updateViewerProgress(request.response.size, request.response.size);
+      if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Decoding full image…';
       prepareViewerOriginal(url, request.response).then(onReady).catch(onError);
     };
     request.onerror = () => {
@@ -1072,6 +1420,17 @@
       onError();
     };
     request.send();
+  }
+
+  function snapshotViewerThumbnail(tile) {
+    if (!tile?.complete || !tile.naturalWidth || !tile.naturalHeight) return null;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = tile.naturalWidth;
+      canvas.height = tile.naturalHeight;
+      canvas.getContext('2d').drawImage(tile, 0, 0);
+      return canvas.toDataURL('image/png');
+    } catch { return null; } // Missing/tainted pixels fall back to the thumbnail endpoint.
   }
 
   function showViewerImage(button) {
@@ -1085,9 +1444,9 @@
     viewerDownload.href = button.dataset.download;
     viewerImage.classList.add('loading');
     viewerImage.removeAttribute('src');
-    if (viewerLoading) viewerLoading.hidden = true;
-    if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Loading full image...';
-    if (viewerProgress) viewerProgress.hidden = true;
+    if (viewerLoading) viewerLoading.hidden = false;
+    if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Checking image cache…';
+    if (viewerProgress) viewerProgress.hidden = false;
     updateViewerProgress(0, 0);
     if (button.dataset.shareAudit) {
       fetch(button.dataset.shareAudit, {
@@ -1099,57 +1458,101 @@
 
     let thumbnailDisplayed = false;
     let originalReady = false;
+    let mediumReady = false;
+    const loadMedium = () => {
+      if (mediumReady || originalReady || generation !== viewerLoadGeneration) return;
+      const controller = new AbortController(); viewerMediumController = controller;
+      fetchMediumThumbnail(button.dataset.viewerThumbnail, controller.signal).then(async blob => {
+        if (!blob || controller.signal.aborted || originalReady || generation !== viewerLoadGeneration) return;
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+          const loader = new Image(); loader.src = objectUrl; await loader.decode();
+          if (controller.signal.aborted || originalReady || generation !== viewerLoadGeneration) return;
+          mediumReady = true;
+          thumbnailDisplayed = await displayViewerSource(loader, generation, button);
+        } finally { URL.revokeObjectURL(objectUrl); }
+      }).catch(() => {});
+    };
+    let thumbnailStarted = false;
+    const startThumbnail = (originalWidth = 0, originalHeight = 0) => {
+      if (generation !== viewerLoadGeneration || originalReady) return;
+      if (originalWidth > 0 && originalHeight > 0) {
+        button.dataset.viewerOriginalWidth = originalWidth;
+        button.dataset.viewerOriginalHeight = originalHeight;
+        if (viewerDisplayingPlaceholder) setViewerPlaceholderSize(button);
+      }
+      if (thumbnailStarted) return;
+      thumbnailStarted = true;
+      const tile = button.querySelector('img');
+      const previewSource = snapshotViewerThumbnail(tile);
+      if (previewSource) {
+        // Grid Blob URLs have already been revoked; copy decoded pixels instead.
+        viewerImage.src = previewSource;
+        viewerDisplayingPlaceholder = true;
+        viewerPlaceholderButton = button;
+        viewerImage.style.width = `${getViewerAvailableSize().width}px`;
+        viewerImage.style.height = `${getViewerAvailableSize().height}px`;
+        viewerImage.classList.remove('loading');
+        setViewerPlaceholderSize(button);
+        viewerImage.decode().then(() => {
+          if (generation === viewerLoadGeneration && !originalReady) setViewerPlaceholderSize(button);
+        }).catch(() => { });
+        thumbnailDisplayed = true;
+      } else {
+        const thumbnail = preloadViewerImage(button.dataset.viewerThumbnail, 'high');
+        viewerThumbnailLoader = thumbnail.loader;
+        thumbnail.ready.then(async loader => {
+          if (generation !== viewerLoadGeneration || originalReady || mediumReady) return;
+          thumbnailDisplayed = await displayViewerSource(loader, generation, button);
+        }).catch(() => { });
+      }
+    };
+    startThumbnail();
+    loadMedium();
+    const showOriginalError = () => {
+      if (generation !== viewerLoadGeneration) return;
+      if (!thumbnailDisplayed) viewerImage.classList.add('loading');
+      if (viewerLoading) viewerLoading.hidden = false;
+      if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Full image could not be loaded.';
+      if (viewerProgress) viewerProgress.hidden = true;
+      if (viewerProgressDetail) viewerProgressDetail.textContent = '';
+    };
+    // A cached Blob is not necessarily decoded (especially prefetched originals).
+    // Keep the thumbnail visible while even a memory-cached original decodes.
     const memoryEntry = getViewerMemoryCache(button.dataset.viewerSrc);
     if (memoryEntry) {
+      if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Decoding full image…';
+      updateViewerProgress(memoryEntry.size, memoryEntry.size);
       const original = preloadViewerImage(memoryEntry.objectUrl, 'high');
       viewerOriginalLoader = original.loader;
       original.ready.then(async loader => {
         if (generation !== viewerLoadGeneration) return;
         originalReady = true;
         await displayViewerSource(loader, generation);
-      }).catch(() => { });
+      }).catch(showOriginalError);
       return;
     }
-
     getCachedViewerOriginal(button.dataset.viewerSrc, generation).then(cachedBlob => {
       if (generation !== viewerLoadGeneration) return;
       if (cachedBlob) {
+        if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Decoding full image…';
+        updateViewerProgress(cachedBlob.size, cachedBlob.size);
         prepareViewerOriginal(button.dataset.viewerSrc, cachedBlob).then(async loader => {
           if (generation !== viewerLoadGeneration) return;
           originalReady = true;
           await displayViewerSource(loader, generation);
-        }).catch(() => { });
+        }).catch(showOriginalError);
         return;
       }
 
       if (viewerLoading) viewerLoading.hidden = false;
+      if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Loading full image…';
       if (viewerProgress) viewerProgress.hidden = false;
-      let thumbnailStarted = false;
-      const startThumbnail = (originalWidth, originalHeight) => {
-        if (thumbnailStarted || generation !== viewerLoadGeneration) return;
-        thumbnailStarted = true;
-        if (originalWidth > 0 && originalHeight > 0) {
-          button.dataset.viewerOriginalWidth = originalWidth;
-          button.dataset.viewerOriginalHeight = originalHeight;
-        }
-        const thumbnail = preloadViewerImage(button.dataset.viewerThumbnail, 'high');
-        viewerThumbnailLoader = thumbnail.loader;
-        thumbnail.ready.then(async loader => {
-          if (generation !== viewerLoadGeneration || originalReady) return;
-          thumbnailDisplayed = await displayViewerSource(loader, generation, button);
-        }).catch(() => { });
-      };
       loadViewerOriginal(button.dataset.viewerSrc, generation, startThumbnail, async loader => {
         if (generation !== viewerLoadGeneration) return;
         originalReady = true;
         await displayViewerSource(loader, generation);
-        if (viewerLoading) viewerLoading.hidden = true;
-      }, () => {
-        if (generation !== viewerLoadGeneration) return;
-        if (!thumbnailDisplayed) viewerImage.classList.add('loading');
-        if (viewerLoadingLabel) viewerLoadingLabel.textContent = 'Full image could not be loaded.';
-        if (viewerProgress) viewerProgress.hidden = true;
-      });
+      }, showOriginalError);
     });
   }
 
@@ -1169,9 +1572,9 @@
     showViewerImage(viewerButtons[currentViewerIndex]);
   }
 
-  viewerButtons.forEach(button => {
+  function bindViewerButton(button) {
     const input = button.closest('.file-card')?.querySelector('.file-select');
-    const index = fileSelects.indexOf(input);
+    const inputIndex = () => fileSelects.indexOf(input);
     let longPressTimer = null;
     let longPressPoint = null;
 
@@ -1181,11 +1584,11 @@
       longPressPoint = null;
     };
     button.addEventListener('pointerdown', event => {
-      if (event.pointerType !== 'touch' || index < 0) return;
+      if (event.pointerType !== 'touch' || inputIndex() < 0) return;
       longPressPoint = { x: event.clientX, y: event.clientY };
       longPressTimer = setTimeout(() => {
         input.checked = !input.checked;
-        selectionAnchor = index;
+        selectionAnchor = inputIndex();
         suppressGalleryClickUntil = Date.now() + 800;
         updateSelection();
         if (navigator.vibrate) navigator.vibrate(25);
@@ -1209,13 +1612,13 @@
         return;
       }
 
-      if (event.shiftKey && selectionAnchor !== null && index >= 0) {
+      if (event.shiftKey && selectionAnchor !== null && inputIndex() >= 0) {
         clearTimeout(pendingImageClick);
         const visibleIndexes = fileSelects
           .map((item, itemIndex) => item.closest('.gallery-card')?.hidden ? -1 : itemIndex)
           .filter(itemIndex => itemIndex >= 0);
         const anchorPosition = visibleIndexes.indexOf(selectionAnchor);
-        const currentPosition = visibleIndexes.indexOf(index);
+        const currentPosition = visibleIndexes.indexOf(inputIndex());
         if (!event.ctrlKey) fileSelects.forEach(item => item.checked = false);
         if (anchorPosition >= 0 && currentPosition >= 0) {
           const from = Math.min(anchorPosition, currentPosition);
@@ -1224,15 +1627,15 @@
         } else {
           input.checked = true;
         }
-        selectionAnchor = index;
+        selectionAnchor = inputIndex();
         updateSelection();
         return;
       }
 
-      if (event.ctrlKey && index >= 0) {
+      if (event.ctrlKey && inputIndex() >= 0) {
         clearTimeout(pendingImageClick);
         input.checked = !input.checked;
-        selectionAnchor = index;
+        selectionAnchor = inputIndex();
         updateSelection();
         return;
       }
@@ -1240,7 +1643,7 @@
       clearTimeout(pendingImageClick);
       pendingImageClick = setTimeout(() => {
         fileSelects.forEach(item => item.checked = item === input);
-        selectionAnchor = index;
+        selectionAnchor = inputIndex();
         updateSelection();
       }, 220);
     });
@@ -1251,16 +1654,17 @@
       clearTimeout(pendingImageClick);
       openViewer(button);
     });
-  });
+  }
+  viewerButtons.forEach(bindViewerButton);
 
   const autoViewerButton = viewerButtons.find(button => button.dataset.viewerAutoOpen === 'true');
   if (autoViewerButton) queueMicrotask(() => openViewer(autoViewerButton));
 
-  document.querySelectorAll('.file-card').forEach(card => {
+  function bindFileTouch(card) {
     if (card.querySelector('.image-button')) return;
     const input = card.querySelector('.file-select');
-    const index = fileSelects.indexOf(input);
-    if (!input || index < 0) return;
+    const inputIndex = () => fileSelects.indexOf(input);
+    if (!input || inputIndex() < 0) return;
     let timer = null;
     let start = null;
     const cancel = () => {
@@ -1273,7 +1677,7 @@
       start = { x: event.clientX, y: event.clientY };
       timer = setTimeout(() => {
         input.checked = !input.checked;
-        selectionAnchor = index;
+        selectionAnchor = inputIndex();
         suppressGalleryClickUntil = Date.now() + 800;
         updateSelection();
         if (navigator.vibrate) navigator.vibrate(25);
@@ -1290,7 +1694,8 @@
       event.preventDefault();
       event.stopPropagation();
     }, true);
-  });
+  }
+  document.querySelectorAll('.file-card').forEach(bindFileTouch);
 
   viewerImage?.addEventListener('click', event => {
     event.stopPropagation();
@@ -1460,4 +1865,35 @@
     cancelViewerLoads();
     clearViewerMemoryCache();
   });
-})();
+  // Append/prepend cards without remounting existing controls, queues, selection or viewer.
+  document.addEventListener('gallery:items-added', event => {
+    const root = event.detail.root;
+    const currentButton = viewerButtons[currentViewerIndex];
+    const anchorInput = fileSelects[selectionAnchor];
+    const domOrder = (a,b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    root.querySelectorAll('.file-select').forEach(input => { fileSelects.push(input); bindFileSelect(input); });
+    fileSelects.sort(domOrder);
+    if (anchorInput) selectionAnchor = fileSelects.indexOf(anchorInput);
+    root.querySelectorAll('[data-item-kind]').forEach(card => filterableCards.push(card));
+    root.querySelectorAll('[data-viewer-src]').forEach(button => { viewerButtons.push(button); bindViewerButton(button); });
+    viewerButtons.sort(domOrder);
+    if (currentButton) currentViewerIndex = viewerButtons.indexOf(currentButton);
+    root.querySelectorAll('.file-name-download').forEach(bindFileName);
+    root.querySelectorAll('.file-card').forEach(bindFileTouch);
+    root.querySelectorAll('img[data-thumbnail-src]').forEach(image => {
+      thumbnailImages.push(image);
+      image.addEventListener('load', () => setThumbnailReady(image));
+      image.addEventListener('error', () => setThumbnailError(image));
+      thumbnailStates.set(image, { visible: !thumbnailObserver, loaded: false, assigned: false, queued: false, probing: false, cacheProbeAttempted: false, controller: null, retry: null });
+      mediumResizeObserver?.observe(image);
+      if (thumbnailObserver) thumbnailObserver.observe(image); else requestThumbnail(image);
+    });
+    root.querySelectorAll('[data-video-badges-url]').forEach(group => {
+      videoBadgeGroups.push(group);
+      videoBadgeStates.set(group, { visible: !videoBadgeObserver, loaded: false, queued: false, controller: null });
+      if (videoBadgeObserver) videoBadgeObserver.observe(group); else queueVideoBadges(group);
+    });
+    applyGalleryFilter();
+  });
+
+});

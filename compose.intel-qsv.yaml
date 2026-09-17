@@ -1,0 +1,6 @@
+services:
+  webgallery:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${WEBGALLERY_RENDER_GID:?Set WEBGALLERY_RENDER_GID to the host render-device group ID}"

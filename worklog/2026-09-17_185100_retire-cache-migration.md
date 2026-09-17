@@ -1,0 +1,9 @@
+# Retire completed cache migration
+
+- Date: 2026-09-17 18:51 Asia/Bangkok.
+- User confirms cache migration finished and requests removal to stop repeated checks.
+- Removed ThumbnailCacheMigration hosted worker/source, DI registration, Admin progress endpoint/section and JavaScript polling. Removed ThumbnailService indexed migration and lazy legacy-owner/backend probing and GalleryIndexService legacy-owner lookup. Shared-v1 identity, cache-hit fast path, stripe locking, authorization and normal thumbnail generation are unchanged.
+- Updated AGENTS.md and PROJECT_NOTES to supersede historical migration rules. Updated MediumThumbnailHarness and BackgroundThumbnailHarness legacy expectations: old entries must be ignored and untouched rather than promoted.
+- Validation: full MediumThumbnailHarness passed, including existing shared cache reuse across owners, small/medium generation, remote backpressure/preemption/fallback and a new malformed legacy-file test proving it is not moved/deleted/reused. BackgroundThumbnailHarness stopped at its existing queue Task.WhenAll line66 with BackgroundThumbnailPreemptedException before reaching cache tests; not reported as passing and no production scheduling change made. Static search found no remaining migration entrypoints/polling references in runtime or tests. node --check and git diff --check passed.
+- Both Windows-IIS and Linux-Docker publish succeeded. NAS deployed using existing helper; application hashes verified and deployed config preserved. Backup web-data/backups/20260917-185039-index-deploy. Host/SNI-pinned HTTPS /gallery/health returned status ok. Docker output prepared, no container deployed. No authenticated Management browser check performed.
+- Deleted only the obsolete migration source file. No cache, original media, database, keys or deployed settings removed; recover old implementation from prior app backup/worklog history if ever needed. No Git push.

@@ -18,7 +18,19 @@
     <None Remove="publish\**;publish-current\**;release\**" />
     <Compile Remove="publish\**\*.cs;publish-current\**\*.cs;release\**\*.cs" />
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="ThumbService\**\*.cs" />
+    <Content Remove="ThumbService\**" />
+    <None Remove="ThumbService\**" />
     <Content Remove="tests\**" />
     <None Remove="tests\**" />
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(WebGalleryTargetPlatform)' == 'WindowsIIS'">
+    <Content Update="appsettings.Docker.json" CopyToPublishDirectory="Never" />
+    <None Update="deployment\INSTALL-WINDOWS11-IIS.txt" Link="INSTALL-WINDOWS11-IIS.txt" CopyToPublishDirectory="Always" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(WebGalleryTargetPlatform)' == 'LinuxDocker'">
+    <Content Update="web.config" CopyToPublishDirectory="Never" />
+    <None Update="deployment\INSTALL-DOCKER-LINUX.md" Link="INSTALL-DOCKER-LINUX.md" CopyToPublishDirectory="Always" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 @model CollectionsIndexViewModel
+@inject WebGallery.Services.ThumbnailQueueSettings ThumbnailSettings
 @{
     ViewData["Title"] = "Collections";
     var createdLinkId = TempData.Peek("CreatedCollectionShareLinkId") is int id ? id : (int?)null;
@@ -7,7 +8,7 @@
         mode = "private",
         userName = Model.OwnerUserName,
         path,
-        v = WebGallery.Services.ThumbnailService.CacheVersion,
+        v = ThumbnailSettings.CacheVersion,
         stamp = cacheStamp
     })!;
 }
@@ -158,7 +159,7 @@ else
                         var link = share.Link;
                         var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
                         var viewLabel = string.Equals(link.ViewMode, "list", StringComparison.OrdinalIgnoreCase) ? "List" : "Grid";
-                        var sortLabel = link.Sort.ToLowerInvariant() switch { "size" => "Size", "date" => "Date", _ => "Name" };
+                        var sortLabel = link.Sort.ToLowerInvariant() switch { "size" => "Size", "date" => "Date Modified", "taken" => "Date Taken", _ => "Name" };
                         var directionLabel = string.Equals(link.Direction, "desc", StringComparison.OrdinalIgnoreCase) ? "descending" : "ascending";
                         <div class="share-entry @(link.Id == createdLinkId ? "share-row-created" : "")">
                             <div class="share-row">
@@ -277,7 +278,7 @@ else
                     var link = share.Link;
                     var linkUrl = $"{Context.Request.Scheme}://{Context.Request.Host}{Url.Action("Share", "Gallery", new { token = link.Token, sort = link.Sort, dir = link.Direction, itemsPerRow = link.ItemsPerRow, view = link.ViewMode })}";
                     var viewLabel = string.Equals(link.ViewMode, "list", StringComparison.OrdinalIgnoreCase) ? "List" : "Grid";
-                    var sortLabel = link.Sort.ToLowerInvariant() switch { "size" => "Size", "date" => "Date", _ => "Name" };
+                    var sortLabel = link.Sort.ToLowerInvariant() switch { "size" => "Size", "date" => "Date Modified", "taken" => "Date Taken", _ => "Name" };
                     var directionLabel = string.Equals(link.Direction, "desc", StringComparison.OrdinalIgnoreCase) ? "descending" : "ascending";
                     <article class="share-entry folder-share-entry">
                         <div class="folder-share-link-heading">

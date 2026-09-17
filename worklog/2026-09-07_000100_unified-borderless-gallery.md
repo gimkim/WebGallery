@@ -1,0 +1,10 @@
+# Unified borderless photo gallery
+
+- Date: 2026-09-07 00:01 Asia/Bangkok.
+- Request: remove the old Retro/Modern theme system and redesign around a modern borderless photo grid inspired by the supplied Immich reference.
+- Changes: sole stylesheet `wwwroot/css/site.css`, using the shared functional modern base and a photo-first dark interface; removed `site-modern.css`. Compact desktop library sidebar becomes horizontal navigation at tablet/mobile widths. Photo/video grid tiles have no borders, rounded image corners or shadows; narrow gutters; hover/focus caption/download overlay; accessible selection indicator (always visible on small screens). Existing contain sizing, List view metadata and functional layout rules retained. Folder silhouettes simplified.
+- Removed Theme reading, setting validation/save, initialization and Management selector from layout, AdminController, GalleryViewModels, DatabaseInitializer and Admin view. Existing database Theme rows are ignored, not deleted. AppTitle, other settings and production data remain unchanged.
+- Updated AGENTS.md and .agents/PROJECT_NOTES.md to supersede old dual-theme guidance.
+- Validation: dotnet build --no-restore passed with zero warnings/errors. Existing tests/viewer-placeholder.cjs regression passed. New tests/borderless-layout.cjs ran headless Edge with representative Gallery markup and the actual stylesheet at 1440/768/390 px: no horizontal overflow, zero photo borders/radii, contain sizing, keyboard caption reveal and List metadata positioning passed. Inspected desktop/mobile screenshots and refined toolbar specificity and checkbox visibility. This is an isolated rendering fixture, not authenticated application or NAS browser testing.
+- Deployment: source only. No NAS files, configuration, database, keys or caches changed this session. Latest request did not explicitly request deploying this redesign.
+- Remaining: authenticated real-page validation with actual photos and long names, touch interactions, Collections and Management visual review; deploy when requested. Unrelated earlier working-tree changes preserved.

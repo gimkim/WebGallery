@@ -6,5 +6,6 @@ public sealed class ApplicationUser : IdentityUser
 {
     public string DisplayName { get; set; } = "";
     public string RootFolder { get; set; } = "";
+    public bool RequirePasswordChange { get; set; }
     public List<UserRoot> Roots { get; set; } = [];
 }

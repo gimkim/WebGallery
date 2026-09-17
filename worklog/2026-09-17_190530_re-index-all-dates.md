@@ -1,0 +1,8 @@
+# Re-index all including capture dates
+
+- Date: 2026-09-17 19:05 Asia/Bangkok. User requests Re-index all because old index lacks Date Taken.
+- Inspection: existing Rebuild index only queued folder reconciliation; initial date schema upgrade already queues unknown dates automatically, but manual rebuild did not force a fresh EXIF read for unchanged entries.
+- Updated GalleryIndexService.Rebuild to atomically mark all indexed folders due and all image DateTakenScanAfter values0. Existing known dates remain usable until refreshed; absent dates stay null/last, never fallback to modification time. Normal source fingerprint changes still invalidate dates. Original files, small/medium thumbnail readiness, cache keys/files and snapshots are not purged. Existing single background metadata worker rereads dates.
+- Management existing Admin-only/antiforgery POST now labelled Re-index all, with scope/background/cache explanation and updated success message. Existing endpoint retained for compatibility. Updated AGENTS.md and DateTakenHarness.
+- Validation: DateTakenHarness passed full date tests plus all-images/no-EXIF requeue, retained known dates, preserved thumbnail signatures, all folders due, repeated-call no duplication. Both publish profiles succeeded; git diff --check passed. No browser click validation or production full re-index triggered by agent.
+- NAS helper deployed and hash-verified with config preserved, backup web-data/backups/20260917-190513-index-deploy; pinned HTTPS health checked after deployment. Linux output published only. User can run Management > System > Re-index all; refresh Gallery after background completion to see updated sorting. No Git push.

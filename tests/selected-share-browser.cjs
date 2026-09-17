@@ -1,0 +1,24 @@
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const {chromium}=require(require.resolve('playwright',{paths:['C:/Users/tatsa/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules']}));
+(async()=>{const browser=await chromium.launch({channel:'msedge',headless:true});try{
+ const page=await browser.newPage(),base='http://127.0.0.1:5294';
+ await page.goto(base+'/Account/Login');await page.locator('[name=UserName]').fill('admin');await page.locator('[name=Password]').fill(fs.readFileSync('App_Data/spa-smoke/bootstrap-admin.txt','utf8').match(/Password: (.+)/)[1].trim());await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.waitForSelector('[data-write-path]');
+ const root=await page.locator('[data-write-path]').getAttribute('data-write-path'),folder=root+'/child';
+ await page.goto(base+'/?path='+encodeURIComponent(folder));
+ await page.locator('[data-view=list]').click();
+ await page.locator('.file-card').filter({has:page.locator('[data-viewer-src]')}).locator('.file-name-download').click();
+ assert(await page.locator('#image-viewer').evaluate(e=>e.open),'List filename opens viewer');await page.keyboard.press('Escape');
+ await page.locator('.file-select').evaluateAll(xs=>xs.forEach(x=>{x.checked=!x.value.endsWith('unshared-fixture.txt');x.dispatchEvent(new Event('change'));}));
+ assert(await page.locator('#share-selected-file').isVisible());await page.locator('#share-selected-file').click();
+ await page.waitForFunction(()=>document.querySelector('#share-panel')?.open);
+ const link=await page.locator('#share-panel .share-row-created input[readonly]').inputValue();
+ const guest=await browser.newContext(),g=await guest.newPage();await g.goto(link);assert.equal(await g.locator('.file-card').count(),2);
+ const token=new URL(link).searchParams.get('token') || new URL(link).pathname.split('/').pop();
+ const asset=(action,path)=>base+'/Gallery/'+action+'?mode=share&token='+encodeURIComponent(token)+'&path='+encodeURIComponent(path);
+ assert.equal((await g.request.get(asset('Download',folder+'/readme.txt'))).status(),200);
+ assert.equal((await g.request.get(asset('Download',folder+'/unshared-fixture.txt'))).status(),404);
+ assert.equal((await g.request.get(asset('DownloadFolder',folder))).status(),404);
+ assert.equal((await g.request.get(link+'&path='+encodeURIComponent(root))).status(),404);
+ console.log('PASS List viewer; selected share creation/modal; guest exact set; folder ZIP and parent denied');
+ await guest.close();
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
